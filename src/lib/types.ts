@@ -15,4 +15,5 @@ export type Dlp = {
   historicalData: HistoricalPoint[];
   iconUrl: string;
   website: string;
+  address: string;
 };

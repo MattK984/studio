@@ -8,129 +8,68 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import { AreaChart, CircleDollarSign, Info, TrendingUp, Hash, Sigma } from 'lucide-react';
+import { Info, ExternalLink } from 'lucide-react';
 import type { Dlp } from '@/lib/types';
 import { Skeleton } from './ui/skeleton';
 import { DlpSummary } from './dlp-summary';
-import { cn } from '@/lib/utils';
+import { RankBadge } from './rank-badge';
 
 type DlpTableProps = {
   data: Dlp[];
   loading: boolean;
-  selectedDlps: string[];
-  onSelectAll: (checked: boolean) => void;
-  onSelectRow: (id: string, checked: boolean) => void;
-  allSelected: boolean;
-  someSelected: boolean;
 };
 
-export function DlpTable({
-  data,
-  loading,
-  selectedDlps,
-  onSelectAll,
-  onSelectRow,
-  allSelected,
-  someSelected,
-}: DlpTableProps) {
+// Function to format large numbers
+const formatNumber = (num: bigint | number) => {
+  const number = Number(num);
+  if (number >= 1_000_000) {
+    return (number / 1_000_000).toFixed(1) + 'M';
+  }
+  if (number >= 1_000) {
+    return (number / 1_000).toFixed(1) + 'K';
+  }
+  return number.toString();
+};
+
+const truncateAddress = (address: string) => {
+  if (address.length <= 12) return address;
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+};
+
+export function DlpTable({ data, loading }: DlpTableProps) {
   if (loading) {
     return (
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[50px]"><Skeleton className="h-5 w-5" /></TableHead>
-              <TableHead><Skeleton className="h-5 w-32" /></TableHead>
-              <TableHead className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableHead>
-              <TableHead className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableHead>
-              <TableHead className="text-right"><Skeleton className="h-5 w-24 ml-auto" /></TableHead>
-              <TableHead className="text-right"><Skeleton className="h-5 w-24 ml-auto" /></TableHead>
-              <TableHead className="text-right"><Skeleton className="h-5 w-24 ml-auto" /></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {Array.from({ length: 8 }).map((_, i) => (
-              <TableRow key={i}>
-                <TableCell><Skeleton className="h-5 w-5" /></TableCell>
-                <TableCell><Skeleton className="h-5 w-40" /></TableCell>
-                <TableCell><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
-                <TableCell><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
-                <TableCell><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
-                <TableCell><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
-                <TableCell><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      <div className="space-y-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-16 w-full rounded-lg" />
+        ))}
       </div>
     );
   }
-
+  
   return (
-    <div className="rounded-md border">
+    <div className="rounded-lg border">
       <Table>
         <TableHeader>
-          <TableRow>
-            <TableHead className="w-[50px]">
-              <Checkbox
-                checked={allSelected || (someSelected ? 'indeterminate' : false)}
-                onCheckedChange={(checked) => onSelectAll(!!checked)}
-                aria-label="Select all rows"
-              />
-            </TableHead>
+          <TableRow className="border-b hover:bg-transparent">
+            <TableHead className="w-[80px]">Rank</TableHead>
             <TableHead>DLP Name</TableHead>
-            <TableHead className="text-right">
-                <div className="flex items-center justify-end gap-2">
-                    <Hash className="size-4 text-muted-foreground" />
-                    <span>Rank</span>
-                </div>
-            </TableHead>
-            <TableHead className="text-right">
-                <div className="flex items-center justify-end gap-2">
-                    <TrendingUp className="size-4 text-muted-foreground" />
-                    <span>Score</span>
-                </div>
-            </TableHead>
-            <TableHead className="text-right">
-                <div className="flex items-center justify-end gap-2">
-                    <Sigma className="size-4 text-muted-foreground" />
-                    <span>Unique Datapoints</span>
-                </div>
-            </TableHead>
-            <TableHead className="text-right">
-                <div className="flex items-center justify-end gap-2">
-                    <AreaChart className="size-4 text-muted-foreground" />
-                    <span>Trading Volume</span>
-                </div>
-            </TableHead>
-            <TableHead className="text-right">
-                <div className="flex items-center justify-end gap-2">
-                    <CircleDollarSign className="size-4 text-muted-foreground" />
-                    <span>Data Access Fees</span>
-                </div>
-            </TableHead>
+            <TableHead className="text-right">Score</TableHead>
+            <TableHead className="text-right">Unique Datapoints</TableHead>
+            <TableHead className="text-right">Address</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {data.map((dlp) => (
-            <TableRow
-              key={dlp.id}
-              data-state={selectedDlps.includes(dlp.id) ? 'selected' : 'unselected'}
-              className={cn('data-[state=selected]:bg-accent/50')}
-            >
-              <TableCell>
-                <Checkbox
-                  checked={selectedDlps.includes(dlp.id)}
-                  onCheckedChange={(checked) => onSelectRow(dlp.id, !!checked)}
-                  aria-label={`Select row for ${dlp.name}`}
-                />
-              </TableCell>
+            <TableRow key={dlp.id} className="border-b-0">
               <TableCell className="font-medium">
+                <RankBadge rank={dlp.rank} />
+              </TableCell>
+              <TableCell>
                 <div className="flex items-center gap-2">
-                  <span>{dlp.name}</span>
+                  <span className="font-medium">{dlp.name}</span>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-6 w-6">
@@ -151,11 +90,19 @@ export function DlpTable({
                   </Popover>
                 </div>
               </TableCell>
-              <TableCell className="text-right">{dlp.rank}</TableCell>
-              <TableCell className="text-right">{dlp.score}</TableCell>
-              <TableCell className="text-right">{dlp.uniqueDatapoints.toLocaleString()}</TableCell>
-              <TableCell className="text-right">{dlp.tradingVolume.toLocaleString()}</TableCell>
-              <TableCell className="text-right">{dlp.dataAccessFees.toLocaleString()}</TableCell>
+              <TableCell className="text-right font-medium text-green-600">{dlp.score.toFixed(1)}</TableCell>
+              <TableCell className="text-right">{formatNumber(dlp.uniqueDatapoints)}</TableCell>
+              <TableCell className="text-right">
+                <a
+                  href={`https://vanascan.io/address/${dlp.address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-end gap-2 text-muted-foreground hover:text-foreground"
+                >
+                  {truncateAddress(dlp.address)}
+                  <ExternalLink className="size-4" />
+                </a>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

@@ -53,11 +53,9 @@ const dlpPerformanceContract = getContract({
   client: { public: publicClient },
 });
 
-// Let's try fetching data for Epoch 5
 const CURRENT_EPOCH_ID = 5n;
 
-// Generates mock historical data for the chart.
-const generateHistoricalData = () => {
+const generateHistoricalData = (base: number) => {
   const data = [];
   const today = new Date();
   for (let i = 30; i >= 0; i--) {
@@ -65,25 +63,20 @@ const generateHistoricalData = () => {
     date.setDate(today.getDate() - i);
     data.push({
       date: date.toISOString().split('T')[0],
-      score: Math.floor(Math.random() * 40) + 50 + Math.sin(i / 5) * 10,
+      score: Math.max(0, Math.min(100, base + Math.sin(i / 5) * 5 + (Math.random() - 0.5) * 2)),
     });
   }
   return data;
 };
 
-
-// Fetches DLP data from the Vana smart contracts.
 export const fetchDlpData = async (): Promise<Dlp[]> => {
   try {
-    console.log(`Fetching data for Epoch ${CURRENT_EPOCH_ID}`);
     const eligibleDlpIds = await dlpRegistryContract.read.eligibleDlpsListValues();
 
     if (!eligibleDlpIds || eligibleDlpIds.length === 0) {
       console.log('No eligible DLPs found.');
       return [];
     }
-
-    console.log(`Found ${eligibleDlpIds.length} eligible DLPs.`);
 
     const dlpDataPromises = eligibleDlpIds.map(async (dlpId) => {
       try {
@@ -94,27 +87,18 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
           return null;
         }
 
-        let performanceInfo = null;
-        try {
-          // Attempt to fetch performance data for the current epoch
-          performanceInfo = await dlpPerformanceContract.read.epochDlpPerformances([CURRENT_EPOCH_ID, dlpId]);
-        } catch (perfError) {
-          console.warn(`Could not fetch performance data for DLP ${dlpId} in epoch ${CURRENT_EPOCH_ID}. It may not exist yet.`);
-          // Gracefully fail, performance info will remain null
-        }
+        // MOCK DATA FOR UI POPULATION
+        const mockBaseScore = 100 - (Number(dlpId) * 3);
+        const historicalData = generateHistoricalData(mockBaseScore);
+        const score = historicalData[historicalData.length - 1].score;
+        const uniqueDatapoints = BigInt(Math.floor(1500000 - Number(dlpId) * 200000 + Math.random() * 50000));
+        const tradingVolume = BigInt(Math.floor(5000000 - Number(dlpId) * 500000 + Math.random() * 100000));
+        const dataAccessFees = BigInt(Math.floor(50000 - Number(dlpId) * 3000 + Math.random() * 1000));
         
-        const historicalData = generateHistoricalData();
-        
-        // Use real data if available, otherwise default to 0
-        const score = performanceInfo ? Number(performanceInfo.totalScore) / 1e16 : 0; // Normalize score
-        const uniqueDatapoints = performanceInfo ? performanceInfo.uniqueContributors : 0n;
-        const tradingVolume = performanceInfo ? performanceInfo.tradingVolume : 0n;
-        const dataAccessFees = performanceInfo ? performanceInfo.dataAccessFees : 0n;
-
         return {
           id: String(dlpInfo.id),
           name: dlpInfo.name || `DLP #${dlpInfo.id}`,
-          rank: 0,
+          rank: 0, // will be calculated later
           score,
           uniqueDatapoints,
           tradingVolume,
@@ -123,6 +107,7 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
           historicalData,
           iconUrl: dlpInfo.iconUrl || '',
           website: dlpInfo.website || '',
+          address: dlpInfo.dlpAddress || '0x' + ''.padEnd(40, '0'),
         };
 
       } catch (error) {
