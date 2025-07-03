@@ -22,7 +22,7 @@ const generateHistoricalData = () => {
 // GraphQL query to fetch DLPs and their latest performance scores.
 const GET_DLPS_QUERY = gql`
   query GetDlpData {
-    dlpinfos(where: { status: "REGISTERED" }, orderBy: name, orderDirection: asc) {
+    dlpinfos(where: { status: REGISTERED }, orderBy: name, orderDirection: asc) {
       id
       name
       metadata
