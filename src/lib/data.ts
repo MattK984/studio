@@ -85,13 +85,19 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
     // 2. Fetch info and performance for each eligible DLP.
     const dlpDataPromises = eligibleDlpIds.map(async (dlpId) => {
       try {
-        const dlpInfoPromise = dlpRegistryContract.read.dlps([dlpId]);
-        const performanceInfoPromise = dlpPerformanceContract.read.epochDlpPerformances([CURRENT_EPOCH_ID, dlpId]);
-        
-        const [dlpInfo, performanceInfo] = await Promise.all([dlpInfoPromise, performanceInfoPromise]);
+        const dlpInfo = await dlpRegistryContract.read.dlps([dlpId]);
 
         if (!dlpInfo || !dlpInfo.name) {
           return null;
+        }
+
+        let performanceInfo = null;
+        try {
+          // Attempt to fetch performance data, but don't let it crash the whole process.
+          performanceInfo = await dlpPerformanceContract.read.epochDlpPerformances([CURRENT_EPOCH_ID, dlpId]);
+        } catch (perfError: any) {
+          console.warn(`Could not fetch performance data for DLP ${dlpId}: ${perfError.shortMessage || perfError.message}`);
+          // Proceed with null performanceInfo, which will be handled below.
         }
 
         return {
@@ -104,7 +110,7 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
           dataAccessFees: performanceInfo ? performanceInfo.dataAccessFees : 0n,
         };
       } catch (error) {
-        console.error(`Error fetching data for DLP ${dlpId}:`, error);
+        console.error(`Error processing data for DLP ${dlpId}:`, error);
         return null;
       }
     });
