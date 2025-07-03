@@ -95,20 +95,29 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
         const dlpInfoRes = results[i];
         const performanceRes = results[i + numDlps];
 
-        if (dlpInfoRes.status === 'success' && dlpInfoRes.result && performanceRes.status === 'success' && performanceRes.result) {
+        if (dlpInfoRes.status === 'success' && dlpInfoRes.result) {
             const dlpInfo = dlpInfoRes.result;
-            const performanceInfo = performanceRes.result;
+            
+            let score = 0;
+            let uniqueDatapoints = 0;
 
-            // The 'id' for React keys should be a unique string. The DLP address is a good candidate.
+            if (performanceRes.status === 'success' && performanceRes.result) {
+                const performanceInfo = performanceRes.result;
+                score = Number(performanceInfo.totalScore);
+                uniqueDatapoints = Number(performanceInfo.uniqueContributors);
+            } else {
+                console.warn(`Failed to fetch performance data for DLP ID ${dlpIds[i]}. Status: ${performanceRes.status}`);
+            }
+
             dlpsData.push({
                 id: dlpInfo.dlpAddress,
                 name: dlpInfo.name,
-                score: Number(performanceInfo.totalScore),
-                uniqueDatapoints: Number(performanceInfo.uniqueContributors),
+                score,
+                uniqueDatapoints,
                 metadata: dlpInfo.metadata || '{}',
             });
         } else {
-             console.warn(`Failed to fetch complete data for DLP ID ${dlpIds[i]}. Info status: ${dlpInfoRes.status}, Perf status: ${performanceRes.status}`);
+             console.warn(`Failed to fetch complete data for DLP ID ${dlpIds[i]}. Info status: ${dlpInfoRes.status}`);
         }
     }
     
