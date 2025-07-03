@@ -85,19 +85,17 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
       address: DLP_PERFORMANCE_ADDRESS,
       abi: DLP_PERFORMANCE_ABI,
       functionName: 'epochDlpPerformances',
-      args: [0n, dlpId], // Assuming epochId is 0.
+      args: [0n, dlpId], // Assuming epochId is 0 for latest performance.
     }));
     
-    // 4. Execute the multicalls.
-    const infoResults = await publicClient.multicall({
-      contracts: dlpInfoCalls,
+    // 4. Execute the multicalls in a single batch.
+    const results = await publicClient.multicall({
+      contracts: [...dlpInfoCalls, ...dlpPerformanceCalls],
       allowFailure: true,
     });
-    
-    const perfResults = await publicClient.multicall({
-      contracts: dlpPerformanceCalls,
-      allowFailure: true,
-    });
+
+    const infoResults = results.slice(0, dlpIds.length);
+    const perfResults = results.slice(dlpIds.length);
 
     // 5. Process the results, combining and filtering the data.
     const combinedDlps = infoResults
@@ -108,20 +106,23 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
 
         const dlpInfo = infoResult.result as any;
         
-        // Filter out DLPs that are not registered or are deregistered
         // DlpStatus enum: None, Registered, Eligible, Deregistered
-        if (dlpInfo.status === 0 /* None */ || dlpInfo.status === 3 /* Deregistered */) {
+        if (dlpInfo.status !== 1 /* Registered */ && dlpInfo.status !== 2 /* Eligible */) {
           return null;
         }
 
         const perfResult = perfResults[index];
         let score = 0;
         let uniqueDatapoints = 0;
+        let tradingVolume = 0;
+        let dataAccessFees = 0;
 
         if (perfResult && perfResult.status === 'success' && perfResult.result) {
           const perfInfo = perfResult.result as any;
           score = Number(perfInfo.totalScore);
           uniqueDatapoints = Number(perfInfo.uniqueContributors);
+          tradingVolume = Number(perfInfo.tradingVolume);
+          dataAccessFees = Number(perfInfo.dataAccessFees);
         }
 
         return {
@@ -130,6 +131,8 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
           metadata: dlpInfo.metadata || '{}',
           score,
           uniqueDatapoints,
+          tradingVolume,
+          dataAccessFees,
         };
       })
       .filter((dlp): dlp is NonNullable<typeof dlp> => dlp !== null);

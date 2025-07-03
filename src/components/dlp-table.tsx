@@ -11,7 +11,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import { Info, TrendingUp, Hash, Sigma } from 'lucide-react';
+import { AreaChart, CircleDollarSign, Info, TrendingUp, Hash, Sigma } from 'lucide-react';
 import type { Dlp } from '@/lib/types';
 import { Skeleton } from './ui/skeleton';
 import { DlpSummary } from './dlp-summary';
@@ -47,6 +47,8 @@ export function DlpTable({
               <TableHead className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableHead>
               <TableHead className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableHead>
               <TableHead className="text-right"><Skeleton className="h-5 w-24 ml-auto" /></TableHead>
+              <TableHead className="text-right"><Skeleton className="h-5 w-24 ml-auto" /></TableHead>
+              <TableHead className="text-right"><Skeleton className="h-5 w-24 ml-auto" /></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -56,6 +58,8 @@ export function DlpTable({
                 <TableCell><Skeleton className="h-5 w-40" /></TableCell>
                 <TableCell><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
                 <TableCell><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
+                <TableCell><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
+                <TableCell><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
                 <TableCell><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
               </TableRow>
             ))}
@@ -94,6 +98,18 @@ export function DlpTable({
                 <div className="flex items-center justify-end gap-2">
                     <Sigma className="size-4 text-muted-foreground" />
                     <span>Unique Datapoints</span>
+                </div>
+            </TableHead>
+            <TableHead className="text-right">
+                <div className="flex items-center justify-end gap-2">
+                    <AreaChart className="size-4 text-muted-foreground" />
+                    <span>Trading Volume</span>
+                </div>
+            </TableHead>
+            <TableHead className="text-right">
+                <div className="flex items-center justify-end gap-2">
+                    <CircleDollarSign className="size-4 text-muted-foreground" />
+                    <span>Data Access Fees</span>
                 </div>
             </TableHead>
           </TableRow>
@@ -138,6 +154,8 @@ export function DlpTable({
               <TableCell className="text-right">{dlp.rank}</TableCell>
               <TableCell className="text-right">{dlp.score}</TableCell>
               <TableCell className="text-right">{dlp.uniqueDatapoints.toLocaleString()}</TableCell>
+              <TableCell className="text-right">{dlp.tradingVolume.toLocaleString()}</TableCell>
+              <TableCell className="text-right">{dlp.dataAccessFees.toLocaleString()}</TableCell>
             </TableRow>
           ))}
         </TableBody>
