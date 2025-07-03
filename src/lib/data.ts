@@ -22,9 +22,10 @@ const generateHistoricalData = () => {
 // GraphQL query to fetch DLPs and their latest performance scores.
 const GET_DLPS_QUERY = gql`
   query GetDlpData {
-    dlpinfos(where: { status: REGISTERED }, orderBy: name, orderDirection: asc) {
+    dlpinfos(orderBy: name, orderDirection: asc) {
       id
       name
+      status
       metadata
       performances(first: 1, orderBy: epoch, orderDirection: desc) {
         totalScore
@@ -38,6 +39,7 @@ interface SubgraphDlp {
   id: string;
   name: string;
   metadata: string;
+  status: string;
   performances: {
     totalScore: string;
     uniqueContributors: string;
@@ -54,15 +56,17 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
         return [];
     }
 
-    const dlpsData: Omit<Dlp, 'rank' | 'historicalData'>[] = response.dlpinfos.map(subgraphDlp => {
-      const latestPerformance = subgraphDlp.performances?.[0];
-      return {
-        id: subgraphDlp.id,
-        name: subgraphDlp.name,
-        metadata: subgraphDlp.metadata || '{}',
-        score: latestPerformance ? parseInt(latestPerformance.totalScore, 10) : 0,
-        uniqueDatapoints: latestPerformance ? parseInt(latestPerformance.uniqueContributors, 10) : 0,
-      };
+    const dlpsData: Omit<Dlp, 'rank' | 'historicalData'>[] = response.dlpinfos
+      .filter(dlp => dlp.status === 'REGISTERED')
+      .map(subgraphDlp => {
+        const latestPerformance = subgraphDlp.performances?.[0];
+        return {
+          id: subgraphDlp.id,
+          name: subgraphDlp.name,
+          metadata: subgraphDlp.metadata || '{}',
+          score: latestPerformance ? parseInt(latestPerformance.totalScore, 10) : 0,
+          uniqueDatapoints: latestPerformance ? parseInt(latestPerformance.uniqueContributors, 10) : 0,
+        };
     });
 
     const sortedDlps = dlpsData
