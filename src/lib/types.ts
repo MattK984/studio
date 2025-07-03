@@ -8,9 +8,9 @@ export type Dlp = {
   name: string;
   rank: number;
   score: number;
-  uniqueDatapoints: number;
-  tradingVolume: number;
-  dataAccessFees: number;
+  uniqueDatapoints: bigint;
+  tradingVolume: bigint;
+  dataAccessFees: bigint;
   metadata: string;
   historicalData: HistoricalPoint[];
 };

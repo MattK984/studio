@@ -85,7 +85,7 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
       address: DLP_PERFORMANCE_ADDRESS,
       abi: DLP_PERFORMANCE_ABI,
       functionName: 'epochDlpPerformances',
-      args: [0n, dlpId], // Assuming epochId is 0 for latest performance.
+      args: [1n, dlpId], // Query for epoch 1 instead of 0.
     }));
     
     // 4. Execute the multicalls in a single batch.
@@ -113,16 +113,16 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
 
         const perfResult = perfResults[index];
         let score = 0;
-        let uniqueDatapoints = 0;
-        let tradingVolume = 0;
-        let dataAccessFees = 0;
+        let uniqueDatapoints = 0n;
+        let tradingVolume = 0n;
+        let dataAccessFees = 0n;
 
         if (perfResult && perfResult.status === 'success' && perfResult.result) {
           const perfInfo = perfResult.result as any;
           score = Number(perfInfo.totalScore);
-          uniqueDatapoints = Number(perfInfo.uniqueContributors);
-          tradingVolume = Number(perfInfo.tradingVolume);
-          dataAccessFees = Number(perfInfo.dataAccessFees);
+          uniqueDatapoints = perfInfo.uniqueContributors;
+          tradingVolume = perfInfo.tradingVolume;
+          dataAccessFees = perfInfo.dataAccessFees;
         }
 
         return {
