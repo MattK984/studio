@@ -58,80 +58,96 @@ const generateHistoricalData = () => {
 // Fetches DLP data from the Vana smart contracts.
 export const fetchDlpData = async (): Promise<Dlp[]> => {
   try {
-    const eligibleDlpIds = await publicClient.readContract({
+    const dlpCountBigInt = await publicClient.readContract({
       address: DLP_REGISTRY_ADDRESS,
       abi: DLP_REGISTRY_ABI,
-      functionName: 'eligibleDlpsListValues',
+      functionName: 'dlpsCount',
     });
+    const dlpCount = Number(dlpCountBigInt);
 
-    if (!eligibleDlpIds || eligibleDlpIds.length === 0) {
-      console.log('No eligible DLPs found.');
+    if (dlpCount === 0) {
+      console.log('No DLPs found in the registry.');
       return [];
     }
-    
-    // Using a fixed epochId for now. This might need to be made dynamic later.
-    const currentEpochId = 0n;
 
-    const dlpInfoCalls = eligibleDlpIds.map(dlpId => ({
+    // Create an array of DLP IDs from 1 to dlpCount
+    const dlpIds = Array.from({ length: dlpCount }, (_, i) => BigInt(i + 1));
+    
+    // First, fetch all DLP information
+    const dlpInfoCalls = dlpIds.map(dlpId => ({
       address: DLP_REGISTRY_ADDRESS,
       abi: DLP_REGISTRY_ABI,
       functionName: 'dlps',
       args: [dlpId],
     }));
 
-    const dlpPerformanceCalls = eligibleDlpIds.map(dlpId => ({
-      address: DLP_PERFORMANCE_ADDRESS,
-      abi: DLP_PERFORMANCE_ABI,
-      functionName: 'epochDlpPerformances',
-      args: [currentEpochId, dlpId],
-    }));
-
-    const results = await publicClient.multicall({
-      contracts: [...dlpInfoCalls, ...dlpPerformanceCalls],
+    const infoResults = await publicClient.multicall({
+      contracts: dlpInfoCalls,
       allowFailure: true,
     });
 
-    const dlpsData: Omit<Dlp, 'rank' | 'historicalData'>[] = [];
-
-    for (let i = 0; i < eligibleDlpIds.length; i++) {
-      const infoResult = results[i];
-      const perfResult = results[i + eligibleDlpIds.length];
-
+    // Filter for registered DLPs and gather their data
+    const registeredDlps: Omit<Dlp, 'rank' | 'historicalData' | 'score' | 'uniqueDatapoints'>[] = [];
+    infoResults.forEach(infoResult => {
       if (infoResult.status === 'success' && infoResult.result) {
         const dlpInfo = infoResult.result;
-
-        // DLPStatus enum: 0: UNREGISTERED, 1: REGISTERED, 2: JAILED
-        if (dlpInfo.status !== 1) {
-          continue; // Skip non-registered DLPs
+        // DlpStatus enum: 0: UNREGISTERED, 1: REGISTERED, 2: JAILED
+        if (dlpInfo.status === 1) {
+          registeredDlps.push({
+            id: String(dlpInfo.id),
+            name: dlpInfo.name,
+            metadata: dlpInfo.metadata || '{}',
+          });
         }
-
-        let score = 0;
-        let uniqueDatapoints = 0;
-
-        if (perfResult.status === 'success' && perfResult.result) {
-          const dlpPerf = perfResult.result;
-          score = Number(dlpPerf.totalScore);
-          uniqueDatapoints = Number(dlpPerf.uniqueContributors);
-        }
-
-        dlpsData.push({
-          id: String(dlpInfo.id),
-          name: dlpInfo.name,
-          metadata: dlpInfo.metadata || '{}',
-          score,
-          uniqueDatapoints,
-        });
       }
+    });
+
+    if (registeredDlps.length === 0) {
+      console.log('No DLPs with status REGISTERED were found.');
+      return [];
     }
 
-    const sortedDlps = dlpsData
+    // Now, fetch performance data only for the registered DLPs
+    const currentEpochId = 0n; // This might need to be made dynamic later
+    const performanceCalls = registeredDlps.map(dlp => ({
+      address: DLP_PERFORMANCE_ADDRESS,
+      abi: DLP_PERFORMANCE_ABI,
+      functionName: 'epochDlpPerformances',
+      args: [currentEpochId, BigInt(dlp.id)],
+    }));
+
+    const perfResults = await publicClient.multicall({
+      contracts: performanceCalls,
+      allowFailure: true,
+    });
+
+    // Combine DLP info with performance data
+    const combinedDlps = registeredDlps.map((dlp, index) => {
+      const perfResult = perfResults[index];
+      let score = 0;
+      let uniqueDatapoints = 0;
+
+      if (perfResult.status === 'success' && perfResult.result) {
+        score = Number(perfResult.result.totalScore);
+        uniqueDatapoints = Number(perfResult.result.uniqueContributors);
+      }
+      
+      return {
+        ...dlp,
+        score,
+        uniqueDatapoints,
+      };
+    });
+
+    // Sort by score and add rank and historical data
+    const sortedDlps = combinedDlps
       .sort((a, b) => b.score - a.score)
       .map((dlp, index) => ({
         ...dlp,
         rank: index + 1,
         historicalData: generateHistoricalData(),
       }));
-      
+
     return sortedDlps;
 
   } catch (error) {
