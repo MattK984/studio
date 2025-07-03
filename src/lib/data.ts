@@ -53,7 +53,8 @@ const dlpPerformanceContract = getContract({
   client: { public: publicClient },
 });
 
-const CURRENT_EPOCH_ID = 3n;
+// Let's try fetching data for Epoch 5
+const CURRENT_EPOCH_ID = 5n;
 
 // Generates mock historical data for the chart.
 const generateHistoricalData = () => {
@@ -70,57 +71,69 @@ const generateHistoricalData = () => {
   return data;
 };
 
+
 // Fetches DLP data from the Vana smart contracts.
 export const fetchDlpData = async (): Promise<Dlp[]> => {
   try {
-    // 1. Get eligible DLP IDs from the registry contract.
+    console.log(`Fetching data for Epoch ${CURRENT_EPOCH_ID}`);
     const eligibleDlpIds = await dlpRegistryContract.read.eligibleDlpsListValues();
 
     if (!eligibleDlpIds || eligibleDlpIds.length === 0) {
-      console.log('No eligible DLPs found in the registry.');
+      console.log('No eligible DLPs found.');
       return [];
     }
 
-    const dlpDataPromises = eligibleDlpIds.map(async (dlpIdBigInt) => {
-      try {
-        const dlpInfo = await dlpRegistryContract.read.dlps([dlpIdBigInt]);
+    console.log(`Found ${eligibleDlpIds.length} eligible DLPs.`);
 
-        if (!dlpInfo || !dlpInfo.id) {
-            return null;
+    const dlpDataPromises = eligibleDlpIds.map(async (dlpId) => {
+      try {
+        const dlpInfo = await dlpRegistryContract.read.dlps([dlpId]);
+
+        if (!dlpInfo || !dlpInfo.name) {
+          console.warn(`Could not fetch info for DLP ${dlpId}`);
+          return null;
+        }
+
+        let performanceInfo = null;
+        try {
+          // Attempt to fetch performance data for the current epoch
+          performanceInfo = await dlpPerformanceContract.read.epochDlpPerformances([CURRENT_EPOCH_ID, dlpId]);
+        } catch (perfError) {
+          console.warn(`Could not fetch performance data for DLP ${dlpId} in epoch ${CURRENT_EPOCH_ID}. It may not exist yet.`);
+          // Gracefully fail, performance info will remain null
         }
         
-        // Use mock data for scores and other performance metrics
         const historicalData = generateHistoricalData();
-        const score = historicalData.length > 0 ? historicalData[historicalData.length - 1].score : 0;
-        const uniqueDatapoints = BigInt(Math.floor(Math.random() * 5000) + 1000);
-        const tradingVolume = BigInt(Math.floor(Math.random() * 100000) + 50000);
-        const dataAccessFees = BigInt(Math.floor(Math.random() * 20000) + 1000);
         
+        // Use real data if available, otherwise default to 0
+        const score = performanceInfo ? Number(performanceInfo.totalScore) / 1e16 : 0; // Normalize score
+        const uniqueDatapoints = performanceInfo ? performanceInfo.uniqueContributors : 0n;
+        const tradingVolume = performanceInfo ? performanceInfo.tradingVolume : 0n;
+        const dataAccessFees = performanceInfo ? performanceInfo.dataAccessFees : 0n;
+
         return {
-            id: String(dlpInfo.id),
-            name: dlpInfo.name || `DLP #${dlpInfo.id}`,
-            rank: 0, // Will be set after sorting
-            score,
-            uniqueDatapoints,
-            tradingVolume,
-            dataAccessFees,
-            metadata: dlpInfo.metadata || '{}',
-            historicalData,
-            iconUrl: dlpInfo.iconUrl || '',
-            website: dlpInfo.website || '',
+          id: String(dlpInfo.id),
+          name: dlpInfo.name || `DLP #${dlpInfo.id}`,
+          rank: 0,
+          score,
+          uniqueDatapoints,
+          tradingVolume,
+          dataAccessFees,
+          metadata: dlpInfo.metadata || '{}',
+          historicalData,
+          iconUrl: dlpInfo.iconUrl || '',
+          website: dlpInfo.website || '',
         };
 
       } catch (error) {
-        console.error(`Error processing DLP ${dlpIdBigInt}:`, error);
+        console.error(`Error processing DLP ${dlpId}:`, error);
         return null;
       }
     });
 
     const combinedDlps = (await Promise.all(dlpDataPromises))
-        .filter((dlp): dlp is Dlp => dlp !== null);
+      .filter((dlp): dlp is Dlp => dlp !== null);
 
-
-    // 4. Sort by score and assign ranks
     const sortedDlps = combinedDlps
       .sort((a, b) => b.score - a.score)
       .map((dlp, index) => ({
