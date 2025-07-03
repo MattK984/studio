@@ -1,5 +1,6 @@
 import type { Dlp } from './types';
-import { createPublicClient, http, defineChain, parseAbi } from 'viem';
+import { createPublicClient, http, defineChain } from 'viem';
+import { DLP_REGISTRY_ADDRESS, DLP_PERFORMANCE_ADDRESS, DLP_REGISTRY_ABI, DLP_PERFORMANCE_ABI } from './contracts';
 
 // Vana mainnet configuration
 const vanaMainnet = defineChain({
@@ -29,24 +30,6 @@ const publicClient = createPublicClient({
   transport: http(),
 });
 
-// --- DEVELOPER TODO ---
-// Please replace with your actual DLP Registry contract address and ABIs.
-const dlpRegistryAddress = '0x0000000000000000000000000000000000000000'; // <- FIXME: Replace with your registry contract address
-const dlpRegistryAbi = parseAbi([
-  // This is an example ABI. Replace with your actual ABI.
-  // It assumes a function that returns a list of all DLP contract addresses.
-  'function getAllDlps() view returns (address[])',
-]);
-
-// This is an example ABI for an individual DLP contract. Replace with your actual ABI.
-const dlpContractAbi = parseAbi([
-  'function name() view returns (string)',
-  'function score() view returns (uint256)',
-  'function uniqueDatapoints() view returns (uint256)',
-  'function metadata() view returns (string)', // Assuming metadata is a JSON string
-]);
-// --- END TODO ---
-
 const generateHistoricalData = () => {
   const data = [];
   const today = new Date();
@@ -64,57 +47,62 @@ const generateHistoricalData = () => {
 // Fetches DLP data from the Vana blockchain.
 export const fetchDlpData = async (): Promise<Dlp[]> => {
   try {
-    // In a production app, you might want to check for a zero address
-    // and throw a more specific error for the developer.
-    if (dlpRegistryAddress === '0x0000000000000000000000000000000000000000') {
-      console.warn("DLP Registry contract address is not set. Please update it in src/lib/data.ts. Returning empty array for now.");
-      return [];
-    }
-
-    const dlpAddresses = await publicClient.readContract({
-      address: dlpRegistryAddress,
-      abi: dlpRegistryAbi,
-      functionName: 'getAllDlps',
+    const dlpIds = await publicClient.readContract({
+      address: DLP_REGISTRY_ADDRESS,
+      abi: DLP_REGISTRY_ABI,
+      functionName: 'eligibleDlpsListValues',
     });
 
-    if (!dlpAddresses || dlpAddresses.length === 0) {
+    if (!dlpIds || dlpIds.length === 0) {
+      console.log("No eligible DLPs found.");
       return [];
     }
 
-    const contracts = dlpAddresses.map(address => ({
-      address,
-      abi: dlpContractAbi,
+    // --- DEVELOPER NOTE ---
+    // Assuming epoch 0 is the latest relevant epoch.
+    // In a production app, you might need a way to dynamically determine the current epochId.
+    const epochId = 0n;
+
+    const dlpInfoCalls = dlpIds.map(dlpId => ({
+      address: DLP_REGISTRY_ADDRESS,
+      abi: DLP_REGISTRY_ABI,
+      functionName: 'dlps',
+      args: [dlpId],
+    }));
+
+    const dlpPerformanceCalls = dlpIds.map(dlpId => ({
+      address: DLP_PERFORMANCE_ADDRESS,
+      abi: DLP_PERFORMANCE_ABI,
+      functionName: 'epochDlpPerformances',
+      args: [epochId, dlpId],
     }));
 
     const results = await publicClient.multicall({
-      contracts: [
-        ...contracts.map(contract => ({ ...contract, functionName: 'name' } as const)),
-        ...contracts.map(contract => ({ ...contract, functionName: 'score' } as const)),
-        ...contracts.map(contract => ({ ...contract, functionName: 'uniqueDatapoints' } as const)),
-        ...contracts.map(contract => ({ ...contract, functionName: 'metadata' } as const)),
-      ],
-      allowFailure: true,
+      contracts: [...dlpInfoCalls, ...dlpPerformanceCalls],
+      allowFailure: true, // Continue if some calls fail
     });
     
     const dlpsData: Omit<Dlp, 'rank' | 'historicalData'>[] = [];
-    const numDlps = dlpAddresses.length;
+    const numDlps = dlpIds.length;
 
     for (let i = 0; i < numDlps; i++) {
-        const nameRes = results[i];
-        const scoreRes = results[i + numDlps];
-        const dataPointsRes = results[i + numDlps * 2];
-        const metadataRes = results[i + numDlps * 3];
+        const dlpInfoRes = results[i];
+        const performanceRes = results[i + numDlps];
 
-        if (nameRes.status === 'success' && scoreRes.status === 'success' && dataPointsRes.status === 'success') {
+        if (dlpInfoRes.status === 'success' && dlpInfoRes.result && performanceRes.status === 'success' && performanceRes.result) {
+            const dlpInfo = dlpInfoRes.result;
+            const performanceInfo = performanceRes.result;
+
+            // The 'id' for React keys should be a unique string. The DLP address is a good candidate.
             dlpsData.push({
-                id: dlpAddresses[i],
-                name: nameRes.result as string,
-                score: Number(scoreRes.result),
-                uniqueDatapoints: Number(dataPointsRes.result),
-                metadata: metadataRes.status === 'success' ? (metadataRes.result as string) : '{}',
+                id: dlpInfo.dlpAddress,
+                name: dlpInfo.name,
+                score: Number(performanceInfo.totalScore),
+                uniqueDatapoints: Number(performanceInfo.uniqueContributors),
+                metadata: dlpInfo.metadata || '{}',
             });
         } else {
-             console.warn(`Failed to fetch complete data for DLP at address ${dlpAddresses[i]}`);
+             console.warn(`Failed to fetch complete data for DLP ID ${dlpIds[i]}. Info status: ${dlpInfoRes.status}, Perf status: ${performanceRes.status}`);
         }
     }
     
