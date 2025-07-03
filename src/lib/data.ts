@@ -88,18 +88,13 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
         if (!dlpInfo || !dlpInfo.id) {
             return null;
         }
-
-        let performanceInfo = null;
-        try {
-          performanceInfo = await dlpPerformanceContract.read.epochDlpPerformances([CURRENT_EPOCH_ID, dlpIdBigInt]);
-        } catch (perfError: any) {
-          console.warn(`Could not fetch performance data for DLP ${dlpIdBigInt} in epoch ${CURRENT_EPOCH_ID}. Defaulting score to 0.`, perfError.shortMessage || perfError.message);
-        }
         
-        const score = performanceInfo ? Number(performanceInfo.totalScore) : 0;
-        const uniqueDatapoints = performanceInfo ? performanceInfo.uniqueContributors : 0n;
-        const tradingVolume = performanceInfo ? performanceInfo.tradingVolume : 0n;
-        const dataAccessFees = performanceInfo ? performanceInfo.dataAccessFees : 0n;
+        // Use mock data for scores and other performance metrics
+        const historicalData = generateHistoricalData();
+        const score = historicalData.length > 0 ? historicalData[historicalData.length - 1].score : 0;
+        const uniqueDatapoints = BigInt(Math.floor(Math.random() * 5000) + 1000);
+        const tradingVolume = BigInt(Math.floor(Math.random() * 100000) + 50000);
+        const dataAccessFees = BigInt(Math.floor(Math.random() * 20000) + 1000);
         
         return {
             id: String(dlpInfo.id),
@@ -110,7 +105,7 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
             tradingVolume,
             dataAccessFees,
             metadata: dlpInfo.metadata || '{}',
-            historicalData: generateHistoricalData(), // Keep mock data for historical chart
+            historicalData,
             iconUrl: dlpInfo.iconUrl || '',
             website: dlpInfo.website || '',
         };
