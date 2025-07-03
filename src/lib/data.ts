@@ -22,7 +22,7 @@ const generateHistoricalData = () => {
 // GraphQL query to fetch DLPs and their latest performance scores.
 const GET_DLPS_QUERY = gql`
   query GetDlpData {
-    dlpinfos(orderBy: name, orderDirection: asc) {
+    dlpInfos(orderBy: name, orderDirection: asc) {
       id
       name
       status
@@ -49,14 +49,14 @@ interface SubgraphDlp {
 // Fetches DLP data from the Vana Subgraph.
 export const fetchDlpData = async (): Promise<Dlp[]> => {
   try {
-    const response = await request<{ dlpinfos: SubgraphDlp[] }>(SUBGRAPH_URL, GET_DLPS_QUERY);
+    const response = await request<{ dlpInfos: SubgraphDlp[] }>(SUBGRAPH_URL, GET_DLPS_QUERY);
 
-    if (!response.dlpinfos) {
+    if (!response.dlpInfos) {
         console.log("No DLP data found in the Subgraph response.");
         return [];
     }
 
-    const dlpsData: Omit<Dlp, 'rank' | 'historicalData'>[] = response.dlpinfos
+    const dlpsData: Omit<Dlp, 'rank' | 'historicalData'>[] = response.dlpInfos
       .filter(dlp => dlp.status === 'REGISTERED')
       .map(subgraphDlp => {
         const latestPerformance = subgraphDlp.performances?.[0];
