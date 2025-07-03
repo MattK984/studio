@@ -53,9 +53,6 @@ const dlpPerformanceContract = getContract({
   client: { public: publicClient },
 });
 
-// We will query for Epoch 6 as requested.
-const CURRENT_EPOCH_ID = 6n;
-
 const generateHistoricalData = (base: number) => {
   const data = [];
   const today = new Date();
@@ -70,9 +67,9 @@ const generateHistoricalData = (base: number) => {
   return data;
 };
 
-export const fetchDlpData = async (): Promise<Dlp[]> => {
+export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
   try {
-    console.log(`Fetching data for Epoch ${CURRENT_EPOCH_ID}...`);
+    console.log(`Fetching data for Epoch ${epochId}...`);
     const eligibleDlpIds = await dlpRegistryContract.read.eligibleDlpsListValues();
 
     if (!eligibleDlpIds || eligibleDlpIds.length === 0) {
@@ -87,18 +84,19 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
     const latestBlock = await publicClient.getBlockNumber();
     const fromBlock = latestBlock > 9999n ? latestBlock - 9999n : 0n;
 
-    // Fetch performance events for the current epoch
+    // Fetch performance events for the selected epoch
     const performanceEvents = await publicClient.getContractEvents({
       address: DLP_PERFORMANCE_ADDRESS,
       abi: DLP_PERFORMANCE_ABI,
       eventName: 'EpochDlpPerformancesSaved',
       args: {
-        epochId: CURRENT_EPOCH_ID,
+        epochId: epochId,
       },
       fromBlock: fromBlock,
+      toBlock: latestBlock,
     });
 
-    console.log(`Found ${performanceEvents.length} performance events for Epoch ${CURRENT_EPOCH_ID}.`);
+    console.log(`Found ${performanceEvents.length} performance events for Epoch ${epochId}.`);
 
     const performanceMap = new Map();
     for (const event of performanceEvents) {

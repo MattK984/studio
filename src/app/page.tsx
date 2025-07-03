@@ -11,7 +11,7 @@ import { useEffect, useState, useTransition } from 'react';
 import { DlpTable } from '@/components/dlp-table';
 import { HistoricalChart } from '@/components/historical-chart';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 
 // Function to format large numbers
@@ -33,10 +33,11 @@ export default function Home() {
   const [isPending, startTransition] = useTransition();
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const { toast } = useToast();
+  const [selectedEpoch, setSelectedEpoch] = useState<bigint>(5n);
 
-  const loadData = () => {
+  const loadData = (epochId: bigint) => {
     setLoading(true);
-    fetchDlpData()
+    fetchDlpData(epochId)
       .then(fetchedData => {
         setData(fetchedData);
         setFilteredData(fetchedData);
@@ -53,7 +54,7 @@ export default function Home() {
   };
 
   const handleRefresh = () => {
-    startTransition(loadData);
+    startTransition(() => loadData(selectedEpoch));
   };
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,8 +64,9 @@ export default function Home() {
   };
   
   useEffect(() => {
-    loadData();
-  }, []);
+    loadData(selectedEpoch);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEpoch]);
 
   const topScoreDlps = [...data].sort((a, b) => b.totalScore - a.totalScore).slice(0, 3);
   const bestRankedDlps = [...data].sort((a, b) => a.rank - b.rank).filter(d => d.rank > 0).slice(0, 3);
@@ -87,6 +89,25 @@ export default function Home() {
             <p className="text-muted-foreground">Real-time performance metrics for Data Liquidity Pools</p>
           </div>
           <div className="flex items-center gap-4 mt-4 sm:mt-0">
+             <Select
+              value={String(selectedEpoch)}
+              onValueChange={(value) => setSelectedEpoch(BigInt(value))}
+              disabled={isPending || loading}
+            >
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Select Epoch" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Epoch</SelectLabel>
+                  {Array.from({ length: 6 }, (_, i) => i + 1).map((epoch) => (
+                    <SelectItem key={epoch} value={String(epoch)}>
+                      Epoch {epoch}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
             <p className="text-sm text-muted-foreground">
               {lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : ''}
             </p>
