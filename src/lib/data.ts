@@ -53,7 +53,7 @@ const dlpPerformanceContract = getContract({
   client: { public: publicClient },
 });
 
-const CURRENT_EPOCH_ID = 4n;
+const CURRENT_EPOCH_ID = 3n;
 
 // Generates mock historical data for the chart.
 const generateHistoricalData = () => {
@@ -95,7 +95,7 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
         } catch (perfError: any) {
           console.warn(`Could not fetch performance data for DLP ${dlpIdBigInt} in epoch ${CURRENT_EPOCH_ID}. Defaulting score to 0.`, perfError.shortMessage || perfError.message);
         }
-
+        
         const score = performanceInfo ? Number(performanceInfo.totalScore) : 0;
         const uniqueDatapoints = performanceInfo ? performanceInfo.uniqueContributors : 0n;
         const tradingVolume = performanceInfo ? performanceInfo.tradingVolume : 0n;
