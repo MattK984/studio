@@ -41,9 +41,6 @@ const publicClient = createPublicClient({
   transport: http(),
 });
 
-// Use epoch 3 directly, as suggested by the working snippet.
-const CURRENT_EPOCH_ID = 3n;
-
 const dlpRegistryContract = getContract({
   address: DLP_REGISTRY_ADDRESS,
   abi: DLP_REGISTRY_ABI,
@@ -52,9 +49,12 @@ const dlpRegistryContract = getContract({
 
 const dlpPerformanceContract = getContract({
   address: DLP_PERFORMANCE_ADDRESS,
-  abi: DLP_PERFORMANCE_ABI as Abi, // Cast to Abi to satisfy getContract
+  abi: DLP_PERFORMANCE_ABI as Abi,
   client: { public: publicClient },
 });
+
+// Use epoch 3 directly
+const CURRENT_EPOCH_ID = 3n;
 
 // Generates mock historical data for the chart.
 const generateHistoricalData = () => {
@@ -82,61 +82,91 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
       return [];
     }
 
-    // 2. Fetch info and performance for each eligible DLP.
-    const dlpDataPromises = eligibleDlpIds.map(async (dlpId) => {
-      try {
-        const dlpInfo = await dlpRegistryContract.read.dlps([dlpId]);
-
-        if (!dlpInfo || !dlpInfo.name) {
-          return null;
-        }
-
-        let performanceInfo = null;
-        try {
-          // Attempt to fetch performance data, but don't let it crash the whole process.
-          performanceInfo = await dlpPerformanceContract.read.epochDlpPerformances([CURRENT_EPOCH_ID, dlpId]);
-        } catch (perfError: any) {
-          console.warn(`Could not fetch performance data for DLP ${dlpId}: ${perfError.shortMessage || perfError.message}`);
-          // Proceed with null performanceInfo, which will be handled below.
-        }
-
-        return {
-          id: String(dlpInfo.id),
-          name: dlpInfo.name,
+    // 2. Fetch all DLP info and create a map for easy lookup.
+    const dlpInfoPromises = eligibleDlpIds.map(dlpId => dlpRegistryContract.read.dlps([dlpId]));
+    const dlpInfosRaw = await Promise.all(dlpInfoPromises);
+    
+    const dlpMap = new Map<string, Dlp>();
+    dlpInfosRaw.forEach(dlpInfo => {
+      if (dlpInfo && dlpInfo.id > 0) {
+        const id = String(dlpInfo.id);
+        dlpMap.set(id, {
+          id,
+          name: dlpInfo.name || `DLP #${id}`,
+          rank: 0,
+          score: 0,
+          uniqueDatapoints: 0n,
+          tradingVolume: 0n,
+          dataAccessFees: 0n,
           metadata: dlpInfo.metadata || '{}',
-          score: performanceInfo ? Number(performanceInfo.totalScore) : 0,
-          uniqueDatapoints: performanceInfo ? performanceInfo.uniqueContributors : 0n,
-          tradingVolume: performanceInfo ? performanceInfo.tradingVolume : 0n,
-          dataAccessFees: performanceInfo ? performanceInfo.dataAccessFees : 0n,
-        };
-      } catch (error) {
-        console.error(`Error processing data for DLP ${dlpId}:`, error);
-        return null;
+          historicalData: generateHistoricalData(),
+          iconUrl: dlpInfo.iconUrl || '',
+          website: dlpInfo.website || '',
+        });
       }
     });
 
-    // 3. Wait for all promises to resolve and filter out any nulls (errors).
-    const combinedDlps = (await Promise.all(dlpDataPromises))
-      .filter((dlp): dlp is NonNullable<typeof dlp> => dlp !== null);
-      
-    if (combinedDlps.length === 0) {
-      console.log('No active DLPs found after filtering.');
-      return [];
+    // 3. Fetch performance data from event logs for Epoch 3
+    const performanceLogs = await publicClient.getLogs({
+      address: DLP_PERFORMANCE_ADDRESS,
+      event: {
+        type: 'event',
+        name: 'EpochDlpPerformancesSaved',
+        inputs: [
+          { name: 'epochId', type: 'uint256', indexed: true },
+          { name: 'dlpId', type: 'uint256', indexed: true },
+          { name: 'tradingVolume', type: 'uint256', indexed: false },
+          { name: 'uniqueContributors', type: 'uint256', indexed: false },
+          { name: 'dataAccessFees', type: 'uint256', indexed: false },
+          { name: 'tradingVolumeScore', type: 'uint256', indexed: false },
+          { name: 'uniqueContributorsScore', type: 'uint256', indexed: false },
+          { name: 'dataAccessFeesScore', type: 'uint256', indexed: false },
+        ],
+      },
+      args: {
+        epochId: CURRENT_EPOCH_ID,
+      },
+      fromBlock: 0n, // Search from the beginning.
+      toBlock: 'latest',
+    });
+    
+    // 4. If logs are found, calculate scores and update the map
+    if (performanceLogs.length > 0) {
+        const metricWeights = await dlpPerformanceContract.read.metricWeights();
+        
+        performanceLogs.forEach(log => {
+            const { dlpId, tradingVolume, uniqueContributors, dataAccessFees, tradingVolumeScore, uniqueContributorsScore, dataAccessFeesScore } = log.args;
+            const dlpIdStr = String(dlpId);
+
+            if (dlpIdStr && dlpMap.has(dlpIdStr)) {
+                const totalScore = 
+                    ((tradingVolumeScore ?? 0n) * (metricWeights.tradingVolume ?? 0n) +
+                    (uniqueContributorsScore ?? 0n) * (metricWeights.uniqueContributors ?? 0n) +
+                    (dataAccessFeesScore ?? 0n) * (metricWeights.dataAccessFees ?? 0n)) / 1000000000000000000n;
+
+                const dlp = dlpMap.get(dlpIdStr)!;
+                dlp.score = Number(totalScore);
+                dlp.uniqueDatapoints = uniqueContributors ?? 0n;
+                dlp.tradingVolume = tradingVolume ?? 0n;
+                dlp.dataAccessFees = dataAccessFees ?? 0n;
+            }
+        });
     }
 
-    // 4. Sort by score and add rank and historical data
+    // 5. Convert map to array, sort, and assign ranks
+    const combinedDlps = Array.from(dlpMap.values());
+    
     const sortedDlps = combinedDlps
       .sort((a, b) => b.score - a.score)
       .map((dlp, index) => ({
         ...dlp,
-        rank: index + 1,
-        historicalData: generateHistoricalData(),
+        rank: dlp.score > 0 ? index + 1 : 0,
       }));
 
     return sortedDlps;
 
   } catch (error) {
-    console.error('Error fetching DLP leaderboard data:', error);
+    console.error('Error fetching DLP data:', error);
     if (error instanceof Error) {
         console.error('Error name:', error.name);
         console.error('Error message:', error.message);
