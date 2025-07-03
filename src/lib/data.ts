@@ -1,8 +1,44 @@
-import { gql, request } from 'graphql-request';
+import { createPublicClient, http, defineChain } from 'viem';
+import {
+  DLP_REGISTRY_ADDRESS,
+  DLP_PERFORMANCE_ADDRESS,
+  DLP_REGISTRY_ABI,
+  DLP_PERFORMANCE_ABI,
+} from './contracts';
 import type { Dlp } from './types';
 
-// The Graph endpoint for Vana DLP data
-const SUBGRAPH_URL = 'https://api.goldsky.com/api/public/project_cm168cz887zva010j39il7a6p/subgraphs/vana/7.0.1/gn';
+// Vana mainnet configuration
+const vanaMainnet = defineChain({
+  id: 1480,
+  name: 'Vana',
+  nativeCurrency: {
+    decimals: 18,
+    name: 'VANA',
+    symbol: 'VANA',
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://rpc.vana.org'],
+    },
+    public: {
+      http: ['https://rpc.vana.org'],
+    },
+  },
+  blockExplorers: {
+    default: { name: 'Vanascan', url: 'https://vanascan.io' },
+  },
+  contracts: {
+    multicall3: {
+      address: '0xcA11bde05977b3631167028862bE2a173976CA11',
+      blockCreated: 195487,
+    },
+  },
+});
+
+const publicClient = createPublicClient({
+  chain: vanaMainnet,
+  transport: http(),
+});
 
 // Generates mock historical data for the chart.
 const generateHistoricalData = () => {
@@ -19,55 +55,74 @@ const generateHistoricalData = () => {
   return data;
 };
 
-// GraphQL query to fetch DLPs and their latest performance scores.
-const GET_DLPS_QUERY = gql`
-  {
-    dlpInfos(orderBy: name, orderDirection: asc) {
-      id
-      name
-      status
-      metadata
-      performances(first: 1, orderBy: epoch, orderDirection: desc) {
-        totalScore
-        uniqueContributors
-      }
-    }
-  }
-`;
-
-interface SubgraphDlp {
-  id: string;
-  name: string;
-  metadata: string;
-  status: string;
-  performances: {
-    totalScore: string;
-    uniqueContributors: string;
-  }[];
-}
-
-// Fetches DLP data from the Vana Subgraph.
+// Fetches DLP data from the Vana smart contracts.
 export const fetchDlpData = async (): Promise<Dlp[]> => {
   try {
-    const response = await request<{ dlpInfos: SubgraphDlp[] }>(SUBGRAPH_URL, GET_DLPS_QUERY);
-
-    if (!response.dlpInfos) {
-        console.log("No DLP data found in the Subgraph response.");
-        return [];
-    }
-
-    const dlpsData: Omit<Dlp, 'rank' | 'historicalData'>[] = response.dlpInfos
-      .filter(dlp => dlp.status === 'REGISTERED')
-      .map(subgraphDlp => {
-        const latestPerformance = subgraphDlp.performances?.[0];
-        return {
-          id: subgraphDlp.id,
-          name: subgraphDlp.name,
-          metadata: subgraphDlp.metadata || '{}',
-          score: latestPerformance ? parseInt(latestPerformance.totalScore, 10) : 0,
-          uniqueDatapoints: latestPerformance ? parseInt(latestPerformance.uniqueContributors, 10) : 0,
-        };
+    const eligibleDlpIds = await publicClient.readContract({
+      address: DLP_REGISTRY_ADDRESS,
+      abi: DLP_REGISTRY_ABI,
+      functionName: 'eligibleDlpsListValues',
     });
+
+    if (!eligibleDlpIds || eligibleDlpIds.length === 0) {
+      console.log('No eligible DLPs found.');
+      return [];
+    }
+    
+    // Using a fixed epochId for now. This might need to be made dynamic later.
+    const currentEpochId = 0n;
+
+    const dlpInfoCalls = eligibleDlpIds.map(dlpId => ({
+      address: DLP_REGISTRY_ADDRESS,
+      abi: DLP_REGISTRY_ABI,
+      functionName: 'dlps',
+      args: [dlpId],
+    }));
+
+    const dlpPerformanceCalls = eligibleDlpIds.map(dlpId => ({
+      address: DLP_PERFORMANCE_ADDRESS,
+      abi: DLP_PERFORMANCE_ABI,
+      functionName: 'epochDlpPerformances',
+      args: [currentEpochId, dlpId],
+    }));
+
+    const results = await publicClient.multicall({
+      contracts: [...dlpInfoCalls, ...dlpPerformanceCalls],
+      allowFailure: true,
+    });
+
+    const dlpsData: Omit<Dlp, 'rank' | 'historicalData'>[] = [];
+
+    for (let i = 0; i < eligibleDlpIds.length; i++) {
+      const infoResult = results[i];
+      const perfResult = results[i + eligibleDlpIds.length];
+
+      if (infoResult.status === 'success' && infoResult.result) {
+        const dlpInfo = infoResult.result;
+
+        // DLPStatus enum: 0: UNREGISTERED, 1: REGISTERED, 2: JAILED
+        if (dlpInfo.status !== 1) {
+          continue; // Skip non-registered DLPs
+        }
+
+        let score = 0;
+        let uniqueDatapoints = 0;
+
+        if (perfResult.status === 'success' && perfResult.result) {
+          const dlpPerf = perfResult.result;
+          score = Number(dlpPerf.totalScore);
+          uniqueDatapoints = Number(dlpPerf.uniqueContributors);
+        }
+
+        dlpsData.push({
+          id: String(dlpInfo.id),
+          name: dlpInfo.name,
+          metadata: dlpInfo.metadata || '{}',
+          score,
+          uniqueDatapoints,
+        });
+      }
+    }
 
     const sortedDlps = dlpsData
       .sort((a, b) => b.score - a.score)
@@ -76,12 +131,11 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
         rank: index + 1,
         historicalData: generateHistoricalData(),
       }));
-
+      
     return sortedDlps;
 
   } catch (error) {
-    console.error('Error fetching DLP data from Subgraph:', error);
-    // Return empty array to prevent the app from crashing
+    console.error('Error fetching DLP data from smart contracts:', error);
     return [];
   }
 };
