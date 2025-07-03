@@ -7,10 +7,13 @@ export type Dlp = {
   id: string;
   name: string;
   rank: number;
-  score: number;
-  uniqueDatapoints: bigint;
+  totalScore: number;
+  uniqueContributors: bigint;
   tradingVolume: bigint;
   dataAccessFees: bigint;
+  tradingVolumeScore: number;
+  uniqueContributorsScore: number;
+  dataAccessFeesScore: number;
   metadata: string;
   historicalData: HistoricalPoint[];
   iconUrl: string;

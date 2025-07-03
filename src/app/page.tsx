@@ -6,12 +6,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { fetchDlpData } from '@/lib/data';
 import type { Dlp } from '@/lib/types';
-import { Loader2, RefreshCw, Trophy, TrendingUp, Database, Settings, Search } from 'lucide-react';
+import { Loader2, RefreshCw, Trophy, TrendingUp, Users, Settings, Search } from 'lucide-react';
 import { useEffect, useState, useTransition } from 'react';
 import { DlpTable } from '@/components/dlp-table';
 import { HistoricalChart } from '@/components/historical-chart';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // Function to format large numbers
 const formatNumber = (num: bigint | number) => {
@@ -65,10 +66,18 @@ export default function Home() {
     loadData();
   }, []);
 
-  const topScoreDlps = [...data].sort((a, b) => b.score - a.score).slice(0, 3);
+  const topScoreDlps = [...data].sort((a, b) => b.totalScore - a.totalScore).slice(0, 3);
   const bestRankedDlps = [...data].sort((a, b) => a.rank - b.rank).filter(d => d.rank > 0).slice(0, 3);
-  const mostDataPointsDlps = [...data].sort((a, b) => Number(b.uniqueDatapoints) - Number(a.uniqueDatapoints)).slice(0, 3);
+  const mostContributorsDlps = [...data].sort((a, b) => Number(b.uniqueContributors) - Number(a.uniqueContributors)).slice(0, 3);
   
+  const [customMetric, setCustomMetric] = useState('rewards');
+  const topCustomMetricDlps = [...data].sort((a, b) => {
+    if (customMetric === 'rewards') return Number(b.dataAccessFees) - Number(a.dataAccessFees);
+    if (customMetric === 'volume') return Number(b.tradingVolume) - Number(a.tradingVolume);
+    return 0;
+  }).slice(0, 3);
+
+
   return (
     <div className="min-h-screen bg-gray-50 text-foreground">
       <main className="container mx-auto p-4 md:p-8">
@@ -99,10 +108,10 @@ export default function Home() {
               <Trophy className="size-4 text-muted-foreground"/>
             </CardHeader>
             <CardContent>
-              {topScoreDlps.map(dlp => (
+              {loading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 my-1 w-full" />) : topScoreDlps.map(dlp => (
                 <div key={dlp.id} className="flex items-center justify-between text-sm py-1">
                   <span>{dlp.name}</span>
-                  <span className="font-bold">{dlp.score.toFixed(1)}</span>
+                  <span className="font-bold">{dlp.totalScore.toFixed(1)}</span>
                 </div>
               ))}
             </CardContent>
@@ -113,7 +122,7 @@ export default function Home() {
               <TrendingUp className="size-4 text-muted-foreground"/>
             </CardHeader>
             <CardContent>
-              {bestRankedDlps.map(dlp => (
+              {loading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 my-1 w-full" />) : bestRankedDlps.map(dlp => (
                 <div key={dlp.id} className="flex items-center justify-between text-sm py-1">
                   <span>{dlp.name}</span>
                   <div className="px-2 py-0.5 bg-foreground text-background text-xs rounded-md font-bold">#{dlp.rank}</div>
@@ -123,14 +132,14 @@ export default function Home() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Most Data Points</CardTitle>
-              <Database className="size-4 text-muted-foreground"/>
+              <CardTitle className="text-sm font-medium">Most Contributors</CardTitle>
+              <Users className="size-4 text-muted-foreground"/>
             </CardHeader>
             <CardContent>
-              {mostDataPointsDlps.map(dlp => (
+              {loading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 my-1 w-full" />) : mostContributorsDlps.map(dlp => (
                 <div key={dlp.id} className="flex items-center justify-between text-sm py-1">
                   <span>{dlp.name}</span>
-                  <div className="px-2 py-0.5 bg-foreground text-background text-xs rounded-md font-bold">{formatNumber(dlp.uniqueDatapoints)}</div>
+                  <div className="px-2 py-0.5 bg-foreground text-background text-xs rounded-md font-bold">{formatNumber(dlp.uniqueContributors)}</div>
                 </div>
               ))}
             </CardContent>
@@ -141,19 +150,19 @@ export default function Home() {
               <Settings className="size-4 text-muted-foreground"/>
             </CardHeader>
             <CardContent>
-              <Select defaultValue="rewards">
+              <Select defaultValue={customMetric} onValueChange={setCustomMetric}>
                 <SelectTrigger className="mb-2">
                   <SelectValue placeholder="Select a metric" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="rewards">Total Rewards</SelectItem>
-                  <SelectItem value="fees">Data Access Fees</SelectItem>
+                  <SelectItem value="rewards">Data Access Fees</SelectItem>
+                  <SelectItem value="volume">Trading Volume</SelectItem>
                 </SelectContent>
               </Select>
-              {topScoreDlps.map(dlp => (
+              {loading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 my-1 w-full" />) : topCustomMetricDlps.map(dlp => (
                 <div key={dlp.id} className="flex items-center justify-between text-sm py-1">
                   <span>{dlp.name}</span>
-                  <div className="px-2 py-0.5 bg-foreground text-background text-xs rounded-md font-bold">{formatNumber(dlp.dataAccessFees)} VANA</div>
+                  <div className="px-2 py-0.5 bg-foreground text-background text-xs rounded-md font-bold">{formatNumber(customMetric === 'rewards' ? dlp.dataAccessFees : dlp.tradingVolume)} VANA</div>
                 </div>
               ))}
             </CardContent>
@@ -203,11 +212,11 @@ export default function Home() {
                <CardHeader>
                 <CardTitle>Compare DLPs</CardTitle>
                 <CardDescription>
-                  Select DLPs from the table to compare them side-by-side.
+                  Select multiple DLPs from the table to compare them side-by-side.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex items-center justify-center h-64 text-muted-foreground">
-                <p>Comparison view coming soon.</p>
+              <CardContent>
+                <DlpTable data={filteredData} loading={loading} selectable />
               </CardContent>
             </Card>
           </TabsContent>

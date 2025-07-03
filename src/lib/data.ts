@@ -72,6 +72,7 @@ const generateHistoricalData = (base: number) => {
 
 export const fetchDlpData = async (): Promise<Dlp[]> => {
   try {
+    console.log(`Fetching data for Epoch ${CURRENT_EPOCH_ID}...`);
     const eligibleDlpIds = await dlpRegistryContract.read.eligibleDlpsListValues();
 
     if (!eligibleDlpIds || eligibleDlpIds.length === 0) {
@@ -79,39 +80,67 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
       return [];
     }
 
-    const dlpDataPromises = eligibleDlpIds.map(async (dlpId) => {
+    console.log(`Found ${eligibleDlpIds.length} eligible DLPs.`);
+
+    // Fetch performance events for the current epoch
+    const performanceEvents = await publicClient.getContractEvents({
+      address: DLP_PERFORMANCE_ADDRESS,
+      abi: DLP_PERFORMANCE_ABI,
+      eventName: 'EpochDlpPerformancesSaved',
+      args: {
+        epochId: CURRENT_EPOCH_ID,
+      },
+      // Searching the entire chain can be slow, but it's the most reliable way to find the events.
+      // In a production app, you might want to specify a `fromBlock`.
+      fromBlock: 0n, 
+    });
+
+    console.log(`Found ${performanceEvents.length} performance events for Epoch ${CURRENT_EPOCH_ID}.`);
+
+    const performanceMap = new Map();
+    for (const event of performanceEvents) {
+      if (event.args.dlpId !== undefined) {
+        performanceMap.set(String(event.args.dlpId), event.args);
+      }
+    }
+
+    const dlpDataPromises = eligibleDlpIds.map(async (dlpIdBigInt) => {
+      const dlpId = String(dlpIdBigInt);
       try {
-        const dlpInfo = await dlpRegistryContract.read.dlps([dlpId]);
+        const dlpInfo = await dlpRegistryContract.read.dlps([dlpIdBigInt]);
 
         if (!dlpInfo || !dlpInfo.name) {
           console.warn(`Could not fetch info for DLP ${dlpId}`);
           return null;
         }
 
-        let performanceInfo;
-        try {
-           performanceInfo = await dlpPerformanceContract.read.epochDlpPerformances([CURRENT_EPOCH_ID, dlpId]);
-        } catch (e) {
-          console.warn(`Could not fetch performance data for DLP ${dlpId} in epoch ${CURRENT_EPOCH_ID}. It may not exist.`);
-          performanceInfo = null; // Set to null if the call fails
-        }
+        const performanceInfo = performanceMap.get(dlpId);
+
+        const tradingVolumeScore = performanceInfo ? Number(performanceInfo.tradingVolumeScore) / 100 : 0;
+        const uniqueContributorsScore = performanceInfo ? Number(performanceInfo.uniqueContributorsScore) / 100 : 0;
+        const dataAccessFeesScore = performanceInfo ? Number(performanceInfo.dataAccessFeesScore) / 100 : 0;
         
-        const score = performanceInfo ? Number(performanceInfo.totalScore) / 100 : 0;
-        const uniqueDatapoints = performanceInfo ? performanceInfo.uniqueContributors : 0n;
+        // The total score is the sum of the individual scores.
+        const totalScore = tradingVolumeScore + uniqueContributorsScore + dataAccessFeesScore;
+        
+        const uniqueContributors = performanceInfo ? performanceInfo.uniqueContributors : 0n;
         const tradingVolume = performanceInfo ? performanceInfo.tradingVolume : 0n;
         const dataAccessFees = performanceInfo ? performanceInfo.dataAccessFees : 0n;
 
         // Keep generating mock historical data for the chart for now
-        const historicalData = generateHistoricalData(score);
+        const historicalData = generateHistoricalData(totalScore);
         
         return {
-          id: String(dlpInfo.id),
-          name: dlpInfo.name || `DLP #${dlpInfo.id}`,
+          id: dlpId,
+          name: dlpInfo.name || `DLP #${dlpId}`,
           rank: 0, // will be calculated later
-          score,
-          uniqueDatapoints,
+          totalScore,
+          uniqueContributors,
           tradingVolume,
           dataAccessFees,
+          tradingVolumeScore,
+          uniqueContributorsScore,
+          dataAccessFeesScore,
           metadata: dlpInfo.metadata || '{}',
           historicalData,
           iconUrl: dlpInfo.iconUrl || '',
@@ -129,12 +158,13 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
       .filter((dlp): dlp is Dlp => dlp !== null);
 
     const sortedDlps = combinedDlps
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => b.totalScore - a.totalScore)
       .map((dlp, index) => ({
         ...dlp,
-        rank: dlp.score > 0 ? index + 1 : 0,
+        rank: dlp.totalScore > 0 ? index + 1 : 0,
       }));
 
+    console.log(`Successfully processed ${sortedDlps.length} DLPs.`);
     return sortedDlps;
 
   } catch (error) {
