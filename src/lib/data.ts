@@ -47,6 +47,14 @@ const dlpRegistryContract = getContract({
   client: { public: publicClient },
 });
 
+const dlpPerformanceContract = getContract({
+  address: DLP_PERFORMANCE_ADDRESS,
+  abi: DLP_PERFORMANCE_ABI,
+  client: { public: publicClient },
+});
+
+const CURRENT_EPOCH_ID = 4n;
+
 // Generates mock historical data for the chart.
 const generateHistoricalData = () => {
   const data = [];
@@ -73,40 +81,49 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
       return [];
     }
 
-    // 2. Fetch all DLP info.
-    const dlpInfoPromises = eligibleDlpIds.map(dlpId => {
-      return dlpRegistryContract.read.dlps([dlpId]).catch(err => {
-        console.warn(`Could not fetch info for DLP ${dlpId}:`, err);
-        return null;
-      });
-    });
+    const dlpDataPromises = eligibleDlpIds.map(async (dlpIdBigInt) => {
+      try {
+        const dlpInfo = await dlpRegistryContract.read.dlps([dlpIdBigInt]);
 
-    const dlpInfosRaw = await Promise.all(dlpInfoPromises);
+        if (!dlpInfo || !dlpInfo.id) {
+            return null;
+        }
 
-    const combinedDlps: Dlp[] = [];
-    
-    // 3. Process the results, filtering out any nulls
-    dlpInfosRaw.forEach(dlpInfo => {
-      if (dlpInfo && dlpInfo.id > 0) {
-        const id = String(dlpInfo.id);
-        const historicalData = generateHistoricalData();
-        const currentScore = historicalData.length > 0 ? historicalData[historicalData.length - 1].score : 0;
+        let performanceInfo = null;
+        try {
+          performanceInfo = await dlpPerformanceContract.read.epochDlpPerformances([CURRENT_EPOCH_ID, dlpIdBigInt]);
+        } catch (perfError: any) {
+          console.warn(`Could not fetch performance data for DLP ${dlpIdBigInt} in epoch ${CURRENT_EPOCH_ID}. Defaulting score to 0.`, perfError.shortMessage || perfError.message);
+        }
+
+        const score = performanceInfo ? Number(performanceInfo.totalScore) : 0;
+        const uniqueDatapoints = performanceInfo ? performanceInfo.uniqueContributors : 0n;
+        const tradingVolume = performanceInfo ? performanceInfo.tradingVolume : 0n;
+        const dataAccessFees = performanceInfo ? performanceInfo.dataAccessFees : 0n;
         
-        combinedDlps.push({
-          id,
-          name: dlpInfo.name || `DLP #${id}`,
-          rank: 0, // Will be set after sorting
-          score: Math.round(currentScore), // Use the latest mock score
-          uniqueDatapoints: 0n, // Placeholder
-          tradingVolume: 0n, // Placeholder
-          dataAccessFees: 0n, // Placeholder
-          metadata: dlpInfo.metadata || '{}',
-          historicalData: historicalData,
-          iconUrl: dlpInfo.iconUrl || '',
-          website: dlpInfo.website || '',
-        });
+        return {
+            id: String(dlpInfo.id),
+            name: dlpInfo.name || `DLP #${dlpInfo.id}`,
+            rank: 0, // Will be set after sorting
+            score,
+            uniqueDatapoints,
+            tradingVolume,
+            dataAccessFees,
+            metadata: dlpInfo.metadata || '{}',
+            historicalData: generateHistoricalData(), // Keep mock data for historical chart
+            iconUrl: dlpInfo.iconUrl || '',
+            website: dlpInfo.website || '',
+        };
+
+      } catch (error) {
+        console.error(`Error processing DLP ${dlpIdBigInt}:`, error);
+        return null;
       }
     });
+
+    const combinedDlps = (await Promise.all(dlpDataPromises))
+        .filter((dlp): dlp is Dlp => dlp !== null);
+
 
     // 4. Sort by score and assign ranks
     const sortedDlps = combinedDlps
