@@ -13,4 +13,6 @@ export type Dlp = {
   dataAccessFees: bigint;
   metadata: string;
   historicalData: HistoricalPoint[];
+  iconUrl: string;
+  website: string;
 };

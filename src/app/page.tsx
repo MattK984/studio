@@ -1,7 +1,5 @@
 'use client';
 
-import { DlpTable } from '@/components/dlp-table';
-import { HistoricalChart } from '@/components/historical-chart';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,13 +7,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { fetchDlpData } from '@/lib/data';
 import type { Dlp } from '@/lib/types';
-import { BarChart, List, Loader2, RefreshCw } from 'lucide-react';
+import { BarChart, List, Loader2, RefreshCw, Trophy } from 'lucide-react';
 import { useEffect, useState, useTransition } from 'react';
+import { DlpRankingsList } from '@/components/dlp-rankings-list';
+import { HistoricalChart } from '@/components/historical-chart';
 
 export default function Home() {
   const [data, setData] = useState<Dlp[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDlps, setSelectedDlps] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
 
@@ -43,25 +42,6 @@ export default function Home() {
     loadData();
   }, []);
 
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedDlps(data.map((dlp) => dlp.id));
-    } else {
-      setSelectedDlps([]);
-    }
-  };
-
-  const handleSelectRow = (id: string, checked: boolean) => {
-    if (checked) {
-      setSelectedDlps((prev) => [...prev, id]);
-    } else {
-      setSelectedDlps((prev) => prev.filter((selectedId) => selectedId !== id));
-    }
-  };
-
-  const allSelected = data.length > 0 && selectedDlps.length === data.length;
-  const someSelected = selectedDlps.length > 0 && selectedDlps.length < data.length;
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       <main className="container mx-auto p-4 md:p-8">
@@ -80,28 +60,23 @@ export default function Home() {
           </Button>
         </header>
 
-        <Tabs defaultValue="current">
+        <Tabs defaultValue="rankings">
           <TabsList className="grid w-full grid-cols-2 md:w-96">
-            <TabsTrigger value="current"><List className="mr-2" />Current Performance</TabsTrigger>
+            <TabsTrigger value="rankings"><Trophy className="mr-2" />Rankings</TabsTrigger>
             <TabsTrigger value="historical"><BarChart className="mr-2" />Historical View</TabsTrigger>
           </TabsList>
-          <TabsContent value="current" className="mt-6">
+          <TabsContent value="rankings" className="mt-6">
             <Card>
               <CardHeader>
-                <CardTitle>DLP Performance Overview</CardTitle>
+                <CardTitle>Rankings</CardTitle>
                 <CardDescription>
-                  Current scores, ranks, and datapoints for Vana DLPs. Select rows to highlight.
+                  DLPs ranked by their total performance score.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <DlpTable
+                <DlpRankingsList
                   data={data}
                   loading={loading}
-                  selectedDlps={selectedDlps}
-                  onSelectAll={handleSelectAll}
-                  onSelectRow={handleSelectRow}
-                  allSelected={allSelected}
-                  someSelected={someSelected}
                 />
               </CardContent>
             </Card>
