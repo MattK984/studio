@@ -58,80 +58,94 @@ const generateHistoricalData = () => {
 // Fetches DLP data from the Vana smart contracts.
 export const fetchDlpData = async (): Promise<Dlp[]> => {
   try {
-    // 1. Get the list of eligible DLP IDs from the registry contract.
-    const eligibleDlpIds = await publicClient.readContract({
+    // 1. Get the total count of all DLPs from the registry contract.
+    const dlpCount = await publicClient.readContract({
       address: DLP_REGISTRY_ADDRESS,
       abi: DLP_REGISTRY_ABI,
-      functionName: 'eligibleDlpsListValues',
+      functionName: 'dlpsCount',
     });
 
-    if (!eligibleDlpIds || eligibleDlpIds.length === 0) {
-      console.log('No eligible DLPs found in the registry.');
+    if (!dlpCount || dlpCount === 0n) {
+      console.log('No DLPs found in the registry.');
       return [];
     }
 
-    // 2. Create multicall requests for info and performance for each eligible DLP.
-    const calls = eligibleDlpIds.flatMap(dlpId => [
-      {
-        address: DLP_REGISTRY_ADDRESS,
-        abi: DLP_REGISTRY_ABI,
-        functionName: 'dlps',
-        args: [dlpId],
-      },
-      {
-        address: DLP_PERFORMANCE_ADDRESS,
-        abi: DLP_PERFORMANCE_ABI,
-        functionName: 'epochDlpPerformances',
-        args: [0n, dlpId], // Assuming epochId is 0 for now
-      },
-    ]);
+    // 2. Create an array of DLP IDs from 1 to dlpCount.
+    const dlpIds = Array.from({ length: Number(dlpCount) }, (_, i) => BigInt(i + 1));
 
-    const results = await publicClient.multicall({
-      contracts: calls,
+    // 3. Create multicall requests for info and performance for each DLP ID.
+    const dlpInfoCalls = dlpIds.map(dlpId => ({
+      address: DLP_REGISTRY_ADDRESS,
+      abi: DLP_REGISTRY_ABI,
+      functionName: 'dlps',
+      args: [dlpId],
+    }));
+
+    const dlpPerformanceCalls = dlpIds.map(dlpId => ({
+      address: DLP_PERFORMANCE_ADDRESS,
+      abi: DLP_PERFORMANCE_ABI,
+      functionName: 'epochDlpPerformances',
+      args: [0n, dlpId], // Assuming epochId is 0.
+    }));
+    
+    // 4. Execute the multicalls.
+    const infoResults = await publicClient.multicall({
+      contracts: dlpInfoCalls,
+      allowFailure: true,
+    });
+    
+    const perfResults = await publicClient.multicall({
+      contracts: dlpPerformanceCalls,
       allowFailure: true,
     });
 
-    // 3. Process the results and combine the data.
-    const combinedDlps = [];
-    for (let i = 0; i < eligibleDlpIds.length; i++) {
-      const infoResult = results[i * 2];
-      const perfResult = results[i * 2 + 1];
+    // 5. Process the results, combining and filtering the data.
+    const combinedDlps = infoResults
+      .map((infoResult, index) => {
+        if (infoResult.status !== 'success' || !infoResult.result) {
+          return null;
+        }
 
-      // We must have DLP info to proceed.
-      if (infoResult.status === 'success' && infoResult.result) {
-        const dlpInfo = infoResult.result;
+        const dlpInfo = infoResult.result as any;
         
+        // Filter out DLPs that are not registered or are deregistered
+        // DlpStatus enum: None, Registered, Eligible, Deregistered
+        if (dlpInfo.status === 0 /* None */ || dlpInfo.status === 3 /* Deregistered */) {
+          return null;
+        }
+
+        const perfResult = perfResults[index];
         let score = 0;
         let uniqueDatapoints = 0;
 
-        if (perfResult.status === 'success' && perfResult.result) {
-          const perfInfo = perfResult.result;
+        if (perfResult && perfResult.status === 'success' && perfResult.result) {
+          const perfInfo = perfResult.result as any;
           score = Number(perfInfo.totalScore);
           uniqueDatapoints = Number(perfInfo.uniqueContributors);
         }
 
-        combinedDlps.push({
+        return {
           id: String(dlpInfo.id),
           name: dlpInfo.name,
           metadata: dlpInfo.metadata || '{}',
           score,
           uniqueDatapoints,
-        });
-      }
-    }
+        };
+      })
+      .filter((dlp): dlp is NonNullable<typeof dlp> => dlp !== null);
     
     if (combinedDlps.length === 0) {
-      console.log('Could not fetch data for any eligible DLPs.');
+      console.log('No active DLPs found after filtering.');
       return [];
     }
 
-    // Sort by score and add rank and historical data
+    // 6. Sort by score and add rank and historical data
     const sortedDlps = combinedDlps
       .sort((a, b) => b.score - a.score)
       .map((dlp, index) => ({
         ...dlp,
         rank: index + 1,
-        historicalData: generateHistoricalData(), // Still mocked
+        historicalData: generateHistoricalData(),
       }));
 
     return sortedDlps;
