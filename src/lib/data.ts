@@ -21,7 +21,7 @@ const generateHistoricalData = () => {
 
 // GraphQL query to fetch DLPs and their latest performance scores.
 const GET_DLPS_QUERY = gql`
-  query GetDlpData {
+  {
     dlpInfos(orderBy: name, orderDirection: asc) {
       id
       name
