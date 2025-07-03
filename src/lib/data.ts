@@ -53,7 +53,8 @@ const dlpPerformanceContract = getContract({
   client: { public: publicClient },
 });
 
-const CURRENT_EPOCH_ID = 5n;
+// We will query for Epoch 6 as requested.
+const CURRENT_EPOCH_ID = 6n;
 
 const generateHistoricalData = (base: number) => {
   const data = [];
@@ -87,13 +88,21 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
           return null;
         }
 
-        // MOCK DATA FOR UI POPULATION
-        const mockBaseScore = 100 - (Number(dlpId) * 3);
-        const historicalData = generateHistoricalData(mockBaseScore);
-        const score = historicalData[historicalData.length - 1].score;
-        const uniqueDatapoints = BigInt(Math.floor(1500000 - Number(dlpId) * 200000 + Math.random() * 50000));
-        const tradingVolume = BigInt(Math.floor(5000000 - Number(dlpId) * 500000 + Math.random() * 100000));
-        const dataAccessFees = BigInt(Math.floor(50000 - Number(dlpId) * 3000 + Math.random() * 1000));
+        let performanceInfo;
+        try {
+           performanceInfo = await dlpPerformanceContract.read.epochDlpPerformances([CURRENT_EPOCH_ID, dlpId]);
+        } catch (e) {
+          console.warn(`Could not fetch performance data for DLP ${dlpId} in epoch ${CURRENT_EPOCH_ID}. It may not exist.`);
+          performanceInfo = null; // Set to null if the call fails
+        }
+        
+        const score = performanceInfo ? Number(performanceInfo.totalScore) / 100 : 0;
+        const uniqueDatapoints = performanceInfo ? performanceInfo.uniqueContributors : 0n;
+        const tradingVolume = performanceInfo ? performanceInfo.tradingVolume : 0n;
+        const dataAccessFees = performanceInfo ? performanceInfo.dataAccessFees : 0n;
+
+        // Keep generating mock historical data for the chart for now
+        const historicalData = generateHistoricalData(score);
         
         return {
           id: String(dlpInfo.id),
