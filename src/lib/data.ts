@@ -82,6 +82,11 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
 
     console.log(`Found ${eligibleDlpIds.length} eligible DLPs.`);
 
+    // To avoid the RPC's 10,000 block range limit on getLogs,
+    // we'll get the latest block and search the last 9,999 blocks for the events.
+    const latestBlock = await publicClient.getBlockNumber();
+    const fromBlock = latestBlock > 9999n ? latestBlock - 9999n : 0n;
+
     // Fetch performance events for the current epoch
     const performanceEvents = await publicClient.getContractEvents({
       address: DLP_PERFORMANCE_ADDRESS,
@@ -90,9 +95,7 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
       args: {
         epochId: CURRENT_EPOCH_ID,
       },
-      // Searching the entire chain can be slow, but it's the most reliable way to find the events.
-      // In a production app, you might want to specify a `fromBlock`.
-      fromBlock: 0n, 
+      fromBlock: fromBlock,
     });
 
     console.log(`Found ${performanceEvents.length} performance events for Epoch ${CURRENT_EPOCH_ID}.`);
