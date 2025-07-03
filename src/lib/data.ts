@@ -47,15 +47,6 @@ const dlpRegistryContract = getContract({
   client: { public: publicClient },
 });
 
-const dlpPerformanceContract = getContract({
-  address: DLP_PERFORMANCE_ADDRESS,
-  abi: DLP_PERFORMANCE_ABI as Abi,
-  client: { public: publicClient },
-});
-
-// Use epoch 3 directly
-const CURRENT_EPOCH_ID = 3n;
-
 // Generates mock historical data for the chart.
 const generateHistoricalData = () => {
   const data = [];
@@ -82,80 +73,42 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
       return [];
     }
 
-    // 2. Fetch all DLP info and create a map for easy lookup.
-    const dlpInfoPromises = eligibleDlpIds.map(dlpId => dlpRegistryContract.read.dlps([dlpId]));
+    // 2. Fetch all DLP info.
+    const dlpInfoPromises = eligibleDlpIds.map(dlpId => {
+      return dlpRegistryContract.read.dlps([dlpId]).catch(err => {
+        console.warn(`Could not fetch info for DLP ${dlpId}:`, err);
+        return null;
+      });
+    });
+
     const dlpInfosRaw = await Promise.all(dlpInfoPromises);
+
+    const combinedDlps: Dlp[] = [];
     
-    const dlpMap = new Map<string, Dlp>();
+    // 3. Process the results, filtering out any nulls
     dlpInfosRaw.forEach(dlpInfo => {
       if (dlpInfo && dlpInfo.id > 0) {
         const id = String(dlpInfo.id);
-        dlpMap.set(id, {
+        const historicalData = generateHistoricalData();
+        const currentScore = historicalData.length > 0 ? historicalData[historicalData.length - 1].score : 0;
+        
+        combinedDlps.push({
           id,
           name: dlpInfo.name || `DLP #${id}`,
-          rank: 0,
-          score: 0,
-          uniqueDatapoints: 0n,
-          tradingVolume: 0n,
-          dataAccessFees: 0n,
+          rank: 0, // Will be set after sorting
+          score: Math.round(currentScore), // Use the latest mock score
+          uniqueDatapoints: 0n, // Placeholder
+          tradingVolume: 0n, // Placeholder
+          dataAccessFees: 0n, // Placeholder
           metadata: dlpInfo.metadata || '{}',
-          historicalData: generateHistoricalData(),
+          historicalData: historicalData,
           iconUrl: dlpInfo.iconUrl || '',
           website: dlpInfo.website || '',
         });
       }
     });
 
-    // 3. Fetch performance data from event logs for Epoch 3
-    const performanceLogs = await publicClient.getLogs({
-      address: DLP_PERFORMANCE_ADDRESS,
-      event: {
-        type: 'event',
-        name: 'EpochDlpPerformancesSaved',
-        inputs: [
-          { name: 'epochId', type: 'uint256', indexed: true },
-          { name: 'dlpId', type: 'uint256', indexed: true },
-          { name: 'tradingVolume', type: 'uint256', indexed: false },
-          { name: 'uniqueContributors', type: 'uint256', indexed: false },
-          { name: 'dataAccessFees', type: 'uint256', indexed: false },
-          { name: 'tradingVolumeScore', type: 'uint256', indexed: false },
-          { name: 'uniqueContributorsScore', type: 'uint256', indexed: false },
-          { name: 'dataAccessFeesScore', type: 'uint256', indexed: false },
-        ],
-      },
-      args: {
-        epochId: CURRENT_EPOCH_ID,
-      },
-      fromBlock: 0n, // Search from the beginning.
-      toBlock: 'latest',
-    });
-    
-    // 4. If logs are found, calculate scores and update the map
-    if (performanceLogs.length > 0) {
-        const metricWeights = await dlpPerformanceContract.read.metricWeights();
-        
-        performanceLogs.forEach(log => {
-            const { dlpId, tradingVolume, uniqueContributors, dataAccessFees, tradingVolumeScore, uniqueContributorsScore, dataAccessFeesScore } = log.args;
-            const dlpIdStr = String(dlpId);
-
-            if (dlpIdStr && dlpMap.has(dlpIdStr)) {
-                const totalScore = 
-                    ((tradingVolumeScore ?? 0n) * (metricWeights.tradingVolume ?? 0n) +
-                    (uniqueContributorsScore ?? 0n) * (metricWeights.uniqueContributors ?? 0n) +
-                    (dataAccessFeesScore ?? 0n) * (metricWeights.dataAccessFees ?? 0n)) / 1000000000000000000n;
-
-                const dlp = dlpMap.get(dlpIdStr)!;
-                dlp.score = Number(totalScore);
-                dlp.uniqueDatapoints = uniqueContributors ?? 0n;
-                dlp.tradingVolume = tradingVolume ?? 0n;
-                dlp.dataAccessFees = dataAccessFees ?? 0n;
-            }
-        });
-    }
-
-    // 5. Convert map to array, sort, and assign ranks
-    const combinedDlps = Array.from(dlpMap.values());
-    
+    // 4. Sort by score and assign ranks
     const sortedDlps = combinedDlps
       .sort((a, b) => b.score - a.score)
       .map((dlp, index) => ({
