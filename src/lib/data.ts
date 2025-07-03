@@ -1,4 +1,4 @@
-import { createPublicClient, http, defineChain } from 'viem';
+import { createPublicClient, http, defineChain, getContract } from 'viem';
 import {
   DLP_REGISTRY_ADDRESS,
   DLP_PERFORMANCE_ADDRESS,
@@ -6,6 +6,7 @@ import {
   DLP_PERFORMANCE_ABI,
 } from './contracts';
 import type { Dlp } from './types';
+import type { Abi } from 'viem';
 
 // Vana mainnet configuration
 const vanaMainnet = defineChain({
@@ -40,6 +41,21 @@ const publicClient = createPublicClient({
   transport: http(),
 });
 
+// Use epoch 3 directly, as suggested by the working snippet.
+const CURRENT_EPOCH_ID = 3n;
+
+const dlpRegistryContract = getContract({
+  address: DLP_REGISTRY_ADDRESS,
+  abi: DLP_REGISTRY_ABI,
+  client: { public: publicClient },
+});
+
+const dlpPerformanceContract = getContract({
+  address: DLP_PERFORMANCE_ADDRESS,
+  abi: DLP_PERFORMANCE_ABI as Abi, // Cast to Abi to satisfy getContract
+  client: { public: publicClient },
+});
+
 // Generates mock historical data for the chart.
 const generateHistoricalData = () => {
   const data = [];
@@ -58,91 +74,51 @@ const generateHistoricalData = () => {
 // Fetches DLP data from the Vana smart contracts.
 export const fetchDlpData = async (): Promise<Dlp[]> => {
   try {
-    // 1. Get the total count of all DLPs from the registry contract.
-    const dlpCount = await publicClient.readContract({
-      address: DLP_REGISTRY_ADDRESS,
-      abi: DLP_REGISTRY_ABI,
-      functionName: 'dlpsCount',
-    });
+    // 1. Get eligible DLP IDs from the registry contract.
+    const eligibleDlpIds = await dlpRegistryContract.read.eligibleDlpsListValues();
 
-    if (!dlpCount || dlpCount === 0n) {
-      console.log('No DLPs found in the registry.');
+    if (!eligibleDlpIds || eligibleDlpIds.length === 0) {
+      console.log('No eligible DLPs found in the registry.');
       return [];
     }
 
-    // 2. Create an array of DLP IDs from 1 to dlpCount.
-    const dlpIds = Array.from({ length: Number(dlpCount) }, (_, i) => BigInt(i + 1));
-
-    // 3. Create multicall requests for info and performance for each DLP ID.
-    const dlpInfoCalls = dlpIds.map(dlpId => ({
-      address: DLP_REGISTRY_ADDRESS,
-      abi: DLP_REGISTRY_ABI,
-      functionName: 'dlps',
-      args: [dlpId],
-    }));
-
-    const dlpPerformanceCalls = dlpIds.map(dlpId => ({
-      address: DLP_PERFORMANCE_ADDRESS,
-      abi: DLP_PERFORMANCE_ABI,
-      functionName: 'epochDlpPerformances',
-      args: [1n, dlpId], // Query for epoch 1 instead of 0.
-    }));
-    
-    // 4. Execute the multicalls in a single batch.
-    const results = await publicClient.multicall({
-      contracts: [...dlpInfoCalls, ...dlpPerformanceCalls],
-      allowFailure: true,
-    });
-
-    const infoResults = results.slice(0, dlpIds.length);
-    const perfResults = results.slice(dlpIds.length);
-
-    // 5. Process the results, combining and filtering the data.
-    const combinedDlps = infoResults
-      .map((infoResult, index) => {
-        if (infoResult.status !== 'success' || !infoResult.result) {
-          return null;
-        }
-
-        const dlpInfo = infoResult.result as any;
+    // 2. Fetch info and performance for each eligible DLP.
+    const dlpDataPromises = eligibleDlpIds.map(async (dlpId) => {
+      try {
+        const dlpInfoPromise = dlpRegistryContract.read.dlps([dlpId]);
+        const performanceInfoPromise = dlpPerformanceContract.read.epochDlpPerformances([CURRENT_EPOCH_ID, dlpId]);
         
-        // DlpStatus enum: None, Registered, Eligible, Deregistered
-        if (dlpInfo.status !== 1 /* Registered */ && dlpInfo.status !== 2 /* Eligible */) {
+        const [dlpInfo, performanceInfo] = await Promise.all([dlpInfoPromise, performanceInfoPromise]);
+
+        if (!dlpInfo || !dlpInfo.name) {
           return null;
-        }
-
-        const perfResult = perfResults[index];
-        let score = 0;
-        let uniqueDatapoints = 0n;
-        let tradingVolume = 0n;
-        let dataAccessFees = 0n;
-
-        if (perfResult && perfResult.status === 'success' && perfResult.result) {
-          const perfInfo = perfResult.result as any;
-          score = Number(perfInfo.totalScore);
-          uniqueDatapoints = perfInfo.uniqueContributors;
-          tradingVolume = perfInfo.tradingVolume;
-          dataAccessFees = perfInfo.dataAccessFees;
         }
 
         return {
           id: String(dlpInfo.id),
           name: dlpInfo.name,
           metadata: dlpInfo.metadata || '{}',
-          score,
-          uniqueDatapoints,
-          tradingVolume,
-          dataAccessFees,
+          score: performanceInfo ? Number(performanceInfo.totalScore) : 0,
+          uniqueDatapoints: performanceInfo ? performanceInfo.uniqueContributors : 0n,
+          tradingVolume: performanceInfo ? performanceInfo.tradingVolume : 0n,
+          dataAccessFees: performanceInfo ? performanceInfo.dataAccessFees : 0n,
         };
-      })
+      } catch (error) {
+        console.error(`Error fetching data for DLP ${dlpId}:`, error);
+        return null;
+      }
+    });
+
+    // 3. Wait for all promises to resolve and filter out any nulls (errors).
+    const combinedDlps = (await Promise.all(dlpDataPromises))
       .filter((dlp): dlp is NonNullable<typeof dlp> => dlp !== null);
-    
+      
     if (combinedDlps.length === 0) {
       console.log('No active DLPs found after filtering.');
       return [];
     }
 
-    // 6. Sort by score and add rank and historical data
+    // 4. Sort by score and add rank and historical data
     const sortedDlps = combinedDlps
       .sort((a, b) => b.score - a.score)
       .map((dlp, index) => ({
@@ -154,7 +130,7 @@ export const fetchDlpData = async (): Promise<Dlp[]> => {
     return sortedDlps;
 
   } catch (error) {
-    console.error('Error fetching DLP data from smart contracts:', error);
+    console.error('Error fetching DLP leaderboard data:', error);
     if (error instanceof Error) {
         console.error('Error name:', error.name);
         console.error('Error message:', error.message);
