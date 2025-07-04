@@ -84,22 +84,37 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
     const latestBlock = await publicClient.getBlockNumber();
     const fromBlock = latestBlock > 9999n ? latestBlock - 9999n : 0n;
 
-    // Fetch performance events for the selected epoch
-    const performanceEvents = await publicClient.getContractEvents({
-      address: DLP_PERFORMANCE_ADDRESS,
-      abi: DLP_PERFORMANCE_ABI,
-      eventName: 'EpochDlpPerformancesSaved',
-      args: {
-        epochId: epochId,
-      },
-      fromBlock: fromBlock,
-      toBlock: latestBlock,
-    });
-
-    console.log(`Found ${performanceEvents.length} performance events for Epoch ${epochId}.`);
+    // Fetch both saved and overridden performance events for the selected epoch
+    const [savedEvents, overriddenEvents] = await Promise.all([
+      publicClient.getContractEvents({
+        address: DLP_PERFORMANCE_ADDRESS,
+        abi: DLP_PERFORMANCE_ABI,
+        eventName: 'EpochDlpPerformancesSaved',
+        args: { epochId: epochId },
+        fromBlock,
+        toBlock: latestBlock,
+      }),
+      publicClient.getContractEvents({
+        address: DLP_PERFORMANCE_ADDRESS,
+        abi: DLP_PERFORMANCE_ABI,
+        eventName: 'EpochDlpPerformancesOverridden',
+        args: { epochId: epochId },
+        fromBlock,
+        toBlock: latestBlock,
+      }),
+    ]);
+    
+    console.log(`Found ${savedEvents.length} 'Saved' events and ${overriddenEvents.length} 'Overridden' events for Epoch ${epochId}.`);
 
     const performanceMap = new Map();
-    for (const event of performanceEvents) {
+    // Process saved events first
+    for (const event of savedEvents) {
+      if (event.args.dlpId !== undefined) {
+        performanceMap.set(String(event.args.dlpId), event.args);
+      }
+    }
+    // Process overridden events, overwriting any saved data
+    for (const event of overriddenEvents) {
       if (event.args.dlpId !== undefined) {
         performanceMap.set(String(event.args.dlpId), event.args);
       }
@@ -116,17 +131,25 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
         }
 
         const performanceInfo = performanceMap.get(dlpId);
-
-        const tradingVolumeScore = performanceInfo ? Number(performanceInfo.tradingVolumeScore) / 100 : 0;
-        const uniqueContributorsScore = performanceInfo ? Number(performanceInfo.uniqueContributorsScore) / 100 : 0;
-        const dataAccessFeesScore = performanceInfo ? Number(performanceInfo.dataAccessFeesScore) / 100 : 0;
         
-        // The total score is the sum of the individual scores.
-        const totalScore = tradingVolumeScore + uniqueContributorsScore + dataAccessFeesScore;
+        let totalScore = 0;
+        let tradingVolumeScore = 0;
+        let uniqueContributorsScore = 0;
+        let dataAccessFeesScore = 0;
+        let uniqueContributors = 0n;
+        let tradingVolume = 0n;
+        let dataAccessFees = 0n;
         
-        const uniqueContributors = performanceInfo ? performanceInfo.uniqueContributors : 0n;
-        const tradingVolume = performanceInfo ? performanceInfo.tradingVolume : 0n;
-        const dataAccessFees = performanceInfo ? performanceInfo.dataAccessFees : 0n;
+        if (performanceInfo) {
+          tradingVolumeScore = Number(performanceInfo.tradingVolumeScore) / 100;
+          uniqueContributorsScore = Number(performanceInfo.uniqueContributorsScore) / 100;
+          dataAccessFeesScore = Number(performanceInfo.dataAccessFeesScore) / 100;
+          totalScore = tradingVolumeScore + uniqueContributorsScore + dataAccessFeesScore;
+          
+          uniqueContributors = performanceInfo.uniqueContributors ?? 0n;
+          tradingVolume = performanceInfo.tradingVolume ?? 0n;
+          dataAccessFees = performanceInfo.dataAccessFees ?? 0n;
+        }
 
         // Keep generating mock historical data for the chart for now
         const historicalData = generateHistoricalData(totalScore);
