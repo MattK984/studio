@@ -1285,3 +1285,48 @@ export const DLP_PERFORMANCE_ABI = [
     "type": "function"
   }
 ] as const;
+
+// Vana Epoch ABI (minimal)
+export const VANA_EPOCH_ABI = [
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "epochId",
+        "type": "uint256"
+      }
+    ],
+    "name": "epochs",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "startBlock",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "endBlock",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rewardAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "isFinalized",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct VanaEpochStorageV1.EpochInfo",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+] as const;

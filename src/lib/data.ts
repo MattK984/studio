@@ -5,6 +5,7 @@ import {
   DLP_PERFORMANCE_ADDRESS,
   DLP_REGISTRY_ABI,
   DLP_PERFORMANCE_ABI,
+  VANA_EPOCH_ABI,
 } from './contracts';
 import type { Dlp } from './types';
 import type { Abi } from 'viem';
@@ -71,6 +72,7 @@ const generateHistoricalData = (base: number) => {
 export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
   try {
     console.log(`Fetching data for Epoch ${epochId}...`);
+    
     const eligibleDlpIds = await dlpRegistryContract.read.eligibleDlpsListValues();
 
     if (!eligibleDlpIds || eligibleDlpIds.length === 0) {
@@ -79,49 +81,64 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
     }
 
     console.log(`Found ${eligibleDlpIds.length} eligible DLPs.`);
-
-    // To avoid the RPC's 10,000 block range limit on getLogs,
-    // we'll get the latest block and search the last 9,999 blocks for the events.
-    const latestBlock = await publicClient.getBlockNumber();
-    const fromBlock = latestBlock > 9999n ? latestBlock - 9999n : 0n;
-
-    console.log(`Searching for events from block ${fromBlock} to ${latestBlock}.`);
-
-    // Fetch both saved and overridden performance events for the selected epoch
-    const [savedEvents, overriddenEvents] = await Promise.all([
-      publicClient.getContractEvents({
-        address: DLP_PERFORMANCE_ADDRESS,
-        abi: DLP_PERFORMANCE_ABI,
-        eventName: 'EpochDlpPerformancesSaved',
-        args: { epochId: epochId },
-        fromBlock,
-        toBlock: latestBlock,
-      }),
-      publicClient.getContractEvents({
-        address: DLP_PERFORMANCE_ADDRESS,
-        abi: DLP_PERFORMANCE_ABI,
-        eventName: 'EpochDlpPerformancesOverridden',
-        args: { epochId: epochId },
-        fromBlock,
-        toBlock: latestBlock,
-      }),
-    ]);
     
-    console.log(`Found ${savedEvents.length} 'Saved' events and ${overriddenEvents.length} 'Overridden' events for Epoch ${epochId}.`);
-
     const performanceMap = new Map();
-    // Process saved events first
-    for (const event of savedEvents) {
-      if (event.args.dlpId !== undefined) {
-        performanceMap.set(String(event.args.dlpId), event.args);
+
+    try {
+      const vanaEpochAddress = await dlpPerformanceContract.read.vanaEpoch();
+      if (!vanaEpochAddress || vanaEpochAddress.startsWith('0x000')) {
+        throw new Error('Vana Epoch contract address not found or invalid.');
       }
-    }
-    // Process overridden events, overwriting any saved data
-    for (const event of overriddenEvents) {
-      if (event.args.dlpId !== undefined) {
-        performanceMap.set(String(event.args.dlpId), event.args);
+      
+      const vanaEpochContract = getContract({
+        address: vanaEpochAddress,
+        abi: VANA_EPOCH_ABI,
+        client: { public: publicClient },
+      });
+
+      const epochInfo = await vanaEpochContract.read.epochs([epochId]);
+      console.log(`Epoch ${epochId} info from contract:`, epochInfo);
+
+      if (epochInfo && epochInfo.endBlock > 0n) {
+        const toBlock = epochInfo.endBlock;
+        const fromBlock = toBlock > 9999n ? toBlock - 9999n : 0n;
+
+        console.log(`Searching for performance events for Epoch ${epochId} from block ${fromBlock} to ${toBlock}.`);
+
+        const [savedEvents, overriddenEvents] = await Promise.all([
+          publicClient.getContractEvents({
+            address: DLP_PERFORMANCE_ADDRESS,
+            abi: DLP_PERFORMANCE_ABI,
+            eventName: 'EpochDlpPerformancesSaved',
+            args: { epochId },
+            fromBlock,
+            toBlock,
+          }),
+          publicClient.getContractEvents({
+            address: DLP_PERFORMANCE_ADDRESS,
+            abi: DLP_PERFORMANCE_ABI,
+            eventName: 'EpochDlpPerformancesOverridden',
+            args: { epochId },
+            fromBlock,
+            toBlock,
+          }),
+        ]);
+        
+        console.log(`Found ${savedEvents.length} 'Saved' events and ${overriddenEvents.length} 'Overridden' events for Epoch ${epochId}.`);
+
+        for (const event of [...savedEvents, ...overriddenEvents]) {
+          if (event.args.dlpId !== undefined) {
+            performanceMap.set(String(event.args.dlpId), event.args);
+          }
+        }
+      } else {
+        console.log(`Epoch ${epochId} has not ended or does not exist. Scores will be 0.`);
       }
+    } catch (epochError) {
+        console.error(`Could not fetch epoch info or performance events for Epoch ${epochId}:`, epochError);
+        console.log('Performance scores will be 0.');
     }
+
 
     const dlpDataPromises = eligibleDlpIds.map(async (dlpIdBigInt) => {
       const dlpId = String(dlpIdBigInt);
@@ -157,7 +174,6 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
             console.log(`No performance data found for DLP ${dlpId} in event logs.`);
         }
 
-        // Keep generating mock historical data for the chart for now
         const historicalData = generateHistoricalData(totalScore);
         
         return {
