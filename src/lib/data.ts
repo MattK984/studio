@@ -82,76 +82,20 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
 
     console.log(`Found ${eligibleDlpIds.length} eligible DLPs.`);
     
-    const performanceMap = new Map();
-
-    try {
-      const vanaEpochAddress = await dlpPerformanceContract.read.vanaEpoch();
-      if (!vanaEpochAddress || vanaEpochAddress.startsWith('0x000')) {
-        throw new Error('Vana Epoch contract address not found or invalid.');
-      }
-      
-      const vanaEpochContract = getContract({
-        address: vanaEpochAddress,
-        abi: VANA_EPOCH_ABI,
-        client: { public: publicClient },
-      });
-
-      const epochInfo = await vanaEpochContract.read.epochs([epochId]);
-      console.log(`Epoch ${epochId} info from contract:`, epochInfo);
-
-      if (epochInfo && epochInfo.endBlock > 0n) {
-        const toBlock = epochInfo.endBlock;
-        const fromBlock = toBlock > 9999n ? toBlock - 9999n : 0n;
-
-        console.log(`Searching for performance events for Epoch ${epochId} from block ${fromBlock} to ${toBlock}.`);
-
-        const [savedEvents, overriddenEvents] = await Promise.all([
-          publicClient.getContractEvents({
-            address: DLP_PERFORMANCE_ADDRESS,
-            abi: DLP_PERFORMANCE_ABI,
-            eventName: 'EpochDlpPerformancesSaved',
-            args: { epochId },
-            fromBlock,
-            toBlock,
-          }),
-          publicClient.getContractEvents({
-            address: DLP_PERFORMANCE_ADDRESS,
-            abi: DLP_PERFORMANCE_ABI,
-            eventName: 'EpochDlpPerformancesOverridden',
-            args: { epochId },
-            fromBlock,
-            toBlock,
-          }),
-        ]);
-        
-        console.log(`Found ${savedEvents.length} 'Saved' events and ${overriddenEvents.length} 'Overridden' events for Epoch ${epochId}.`);
-
-        for (const event of [...savedEvents, ...overriddenEvents]) {
-          if (event.args.dlpId !== undefined) {
-            performanceMap.set(String(event.args.dlpId), event.args);
-          }
-        }
-      } else {
-        console.log(`Epoch ${epochId} has not ended or does not exist. Scores will be 0.`);
-      }
-    } catch (epochError) {
-        console.error(`Could not fetch epoch info or performance events for Epoch ${epochId}:`, epochError);
-        console.log('Performance scores will be 0.');
-    }
-
-
     const dlpDataPromises = eligibleDlpIds.map(async (dlpIdBigInt) => {
       const dlpId = String(dlpIdBigInt);
       try {
-        const dlpInfo = await dlpRegistryContract.read.dlps([dlpIdBigInt]);
-
+        // Fetch basic DLP info (name, address, etc.) and performance data in parallel
+        const [dlpInfo, performanceInfo] = await Promise.all([
+          dlpRegistryContract.read.dlps([dlpIdBigInt]),
+          dlpPerformanceContract.read.epochDlpPerformances([epochId, dlpIdBigInt])
+        ]);
+        
         if (!dlpInfo || !dlpInfo.name) {
           console.warn(`Could not fetch info for DLP ${dlpId}`);
           return null;
         }
 
-        const performanceInfo = performanceMap.get(dlpId);
-        
         let totalScore = 0;
         let tradingVolumeScore = 0;
         let uniqueContributorsScore = 0;
@@ -160,18 +104,19 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
         let tradingVolume = 0n;
         let dataAccessFees = 0n;
         
-        if (performanceInfo) {
+        if (performanceInfo && performanceInfo.totalScore > 0) {
           console.log(`Found performance data for DLP ${dlpId}:`, performanceInfo);
-          tradingVolumeScore = performanceInfo.tradingVolumeScore ? Number(performanceInfo.tradingVolumeScore) / 100 : 0;
-          uniqueContributorsScore = performanceInfo.uniqueContributorsScore ? Number(performanceInfo.uniqueContributorsScore) / 100 : 0;
-          dataAccessFeesScore = performanceInfo.dataAccessFeesScore ? Number(performanceInfo.dataAccessFeesScore) / 100 : 0;
-          totalScore = tradingVolumeScore + uniqueContributorsScore + dataAccessFeesScore;
+          // The contract returns scores scaled by 100, so we divide.
+          tradingVolumeScore = Number(performanceInfo.tradingVolumeScore) / 100;
+          uniqueContributorsScore = Number(performanceInfo.uniqueContributorsScore) / 100;
+          dataAccessFeesScore = Number(performanceInfo.dataAccessFeesScore) / 100;
+          totalScore = Number(performanceInfo.totalScore) / 100;
           
           uniqueContributors = performanceInfo.uniqueContributors ?? 0n;
           tradingVolume = performanceInfo.tradingVolume ?? 0n;
           dataAccessFees = performanceInfo.dataAccessFees ?? 0n;
         } else {
-            console.log(`No performance data found for DLP ${dlpId} in event logs.`);
+            console.log(`No performance data found for DLP ${dlpId} for epoch ${epochId}.`);
         }
 
         const historicalData = generateHistoricalData(totalScore);
@@ -195,8 +140,33 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
         };
 
       } catch (error) {
-        console.error(`Error processing DLP ${dlpId}:`, error);
-        return null;
+        // If the performance call fails for one DLP, we log the error and return a default object.
+        console.error(`Error processing DLP ${dlpId} for epoch ${epochId}:`, error);
+        try {
+            const dlpInfo = await dlpRegistryContract.read.dlps([dlpIdBigInt]);
+            if (!dlpInfo || !dlpInfo.name) return null;
+
+            return {
+              id: dlpId,
+              name: dlpInfo.name,
+              rank: 0,
+              totalScore: 0,
+              uniqueContributors: 0n,
+              tradingVolume: 0n,
+              dataAccessFees: 0n,
+              tradingVolumeScore: 0,
+              uniqueContributorsScore: 0,
+              dataAccessFeesScore: 0,
+              metadata: dlpInfo.metadata || '{}',
+              historicalData: generateHistoricalData(0),
+              iconUrl: dlpInfo.iconUrl || '',
+              website: dlpInfo.website || '',
+              address: dlpInfo.dlpAddress || '0x' + ''.padEnd(40, '0'),
+            };
+        } catch (infoError) {
+            console.error(`Could not fetch basic info for DLP ${dlpId}:`, infoError);
+            return null;
+        }
       }
     });
 
@@ -210,7 +180,7 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
         rank: dlp.totalScore > 0 ? index + 1 : 0,
       }));
 
-    console.log(`Successfully processed ${sortedDlps.length} DLPs.`);
+    console.log(`Successfully processed ${sortedDlps.length} DLPs for Epoch ${epochId}.`);
     return sortedDlps;
 
   } catch (error) {
