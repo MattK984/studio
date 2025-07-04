@@ -1,3 +1,4 @@
+
 import { createPublicClient, http, defineChain, getContract } from 'viem';
 import {
   DLP_REGISTRY_ADDRESS,
@@ -84,6 +85,8 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
     const latestBlock = await publicClient.getBlockNumber();
     const fromBlock = latestBlock > 9999n ? latestBlock - 9999n : 0n;
 
+    console.log(`Searching for events from block ${fromBlock} to ${latestBlock}.`);
+
     // Fetch both saved and overridden performance events for the selected epoch
     const [savedEvents, overriddenEvents] = await Promise.all([
       publicClient.getContractEvents({
@@ -141,14 +144,17 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
         let dataAccessFees = 0n;
         
         if (performanceInfo) {
-          tradingVolumeScore = Number(performanceInfo.tradingVolumeScore) / 100;
-          uniqueContributorsScore = Number(performanceInfo.uniqueContributorsScore) / 100;
-          dataAccessFeesScore = Number(performanceInfo.dataAccessFeesScore) / 100;
+          console.log(`Found performance data for DLP ${dlpId}:`, performanceInfo);
+          tradingVolumeScore = performanceInfo.tradingVolumeScore ? Number(performanceInfo.tradingVolumeScore) / 100 : 0;
+          uniqueContributorsScore = performanceInfo.uniqueContributorsScore ? Number(performanceInfo.uniqueContributorsScore) / 100 : 0;
+          dataAccessFeesScore = performanceInfo.dataAccessFeesScore ? Number(performanceInfo.dataAccessFeesScore) / 100 : 0;
           totalScore = tradingVolumeScore + uniqueContributorsScore + dataAccessFeesScore;
           
           uniqueContributors = performanceInfo.uniqueContributors ?? 0n;
           tradingVolume = performanceInfo.tradingVolume ?? 0n;
           dataAccessFees = performanceInfo.dataAccessFees ?? 0n;
+        } else {
+            console.log(`No performance data found for DLP ${dlpId} in event logs.`);
         }
 
         // Keep generating mock historical data for the chart for now
