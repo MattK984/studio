@@ -1,14 +1,12 @@
 
-import { createPublicClient, http, defineChain, getContract } from 'viem';
+import { createPublicClient, http, defineChain, getContract, formatEther } from 'viem';
 import {
   DLP_REGISTRY_ADDRESS,
   DLP_PERFORMANCE_ADDRESS,
   DLP_REGISTRY_ABI,
   DLP_PERFORMANCE_ABI,
-  VANA_EPOCH_ABI,
 } from './contracts';
 import type { Dlp } from './types';
-import type { Abi } from 'viem';
 
 // Vana mainnet configuration
 const vanaMainnet = defineChain({
@@ -85,10 +83,10 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
     const dlpDataPromises = eligibleDlpIds.map(async (dlpIdBigInt) => {
       const dlpId = String(dlpIdBigInt);
       try {
-        // Fetch basic DLP info (name, address, etc.) and performance data in parallel
-        const [dlpInfo, performanceInfo] = await Promise.all([
-          dlpRegistryContract.read.dlps([dlpIdBigInt]),
-          dlpPerformanceContract.read.epochDlpPerformances([epochId, dlpIdBigInt])
+        const [dlpInfo, performanceData, rewardData] = await Promise.all([
+            dlpRegistryContract.read.dlps([dlpIdBigInt]),
+            dlpPerformanceContract.read.epochDlpPerformances([epochId, dlpIdBigInt]),
+            dlpPerformanceContract.read.calculateEpochDlpRewards([epochId, dlpIdBigInt])
         ]);
         
         if (!dlpInfo || !dlpInfo.name) {
@@ -96,51 +94,32 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
           return null;
         }
 
-        let totalScore = 0;
-        let tradingVolumeScore = 0;
-        let uniqueContributorsScore = 0;
-        let dataAccessFeesScore = 0;
-        let uniqueContributors = 0n;
-        let tradingVolume = 0n;
-        let dataAccessFees = 0n;
-        
-        if (performanceInfo && performanceInfo.totalScore > 0) {
-          console.log(`Found performance data for DLP ${dlpId}:`, performanceInfo);
-          // The contract returns scores scaled by 100, so we divide.
-          tradingVolumeScore = Number(performanceInfo.tradingVolumeScore) / 100;
-          uniqueContributorsScore = Number(performanceInfo.uniqueContributorsScore) / 100;
-          dataAccessFeesScore = Number(performanceInfo.dataAccessFeesScore) / 100;
-          totalScore = Number(performanceInfo.totalScore) / 100;
-          
-          uniqueContributors = performanceInfo.uniqueContributors ?? 0n;
-          tradingVolume = performanceInfo.tradingVolume ?? 0n;
-          dataAccessFees = performanceInfo.dataAccessFees ?? 0n;
-        } else {
-            console.log(`No performance data found for DLP ${dlpId} for epoch ${epochId}.`);
-        }
-
-        const historicalData = generateHistoricalData(totalScore);
+        const totalScore = Number(formatEther(performanceData.totalScore ?? 0n));
         
         return {
           id: dlpId,
           name: dlpInfo.name || `DLP #${dlpId}`,
           rank: 0, // will be calculated later
           totalScore,
-          uniqueContributors,
-          tradingVolume,
-          dataAccessFees,
-          tradingVolumeScore,
-          uniqueContributorsScore,
-          dataAccessFeesScore,
+          uniqueContributors: performanceData.uniqueContributors ?? 0n,
+          tradingVolume: performanceData.tradingVolume ?? 0n,
+          dataAccessFees: performanceData.dataAccessFees ?? 0n,
+          tradingVolumeScore: Number(formatEther(performanceData.tradingVolumeScore ?? 0n)),
+          uniqueContributorsScore: Number(formatEther(performanceData.uniqueContributorsScore ?? 0n)),
+          dataAccessFeesScore: Number(formatEther(performanceData.dataAccessFeesScore ?? 0n)),
+          tradingVolumeScorePenalty: Number(formatEther(performanceData.tradingVolumeScorePenalty ?? 0n)),
+          uniqueContributorsScorePenalty: Number(formatEther(performanceData.uniqueContributorsScorePenalty ?? 0n)),
+          dataAccessFeesScorePenalty: Number(formatEther(performanceData.dataAccessFeesScorePenalty ?? 0n)),
+          rewardAmount: Number(formatEther(rewardData.rewardAmount ?? 0n)),
+          penaltyAmount: Number(formatEther(rewardData.penaltyAmount ?? 0n)),
           metadata: dlpInfo.metadata || '{}',
-          historicalData,
+          historicalData: generateHistoricalData(totalScore),
           iconUrl: dlpInfo.iconUrl || '',
           website: dlpInfo.website || '',
           address: dlpInfo.dlpAddress || '0x' + ''.padEnd(40, '0'),
         };
 
       } catch (error) {
-        // If the performance call fails for one DLP, we log the error and return a default object.
         console.error(`Error processing DLP ${dlpId} for epoch ${epochId}:`, error);
         try {
             const dlpInfo = await dlpRegistryContract.read.dlps([dlpIdBigInt]);
@@ -157,6 +136,11 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
               tradingVolumeScore: 0,
               uniqueContributorsScore: 0,
               dataAccessFeesScore: 0,
+              tradingVolumeScorePenalty: 0,
+              uniqueContributorsScorePenalty: 0,
+              dataAccessFeesScorePenalty: 0,
+              rewardAmount: 0,
+              penaltyAmount: 0,
               metadata: dlpInfo.metadata || '{}',
               historicalData: generateHistoricalData(0),
               iconUrl: dlpInfo.iconUrl || '',

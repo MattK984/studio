@@ -14,6 +14,11 @@ export type Dlp = {
   tradingVolumeScore: number;
   uniqueContributorsScore: number;
   dataAccessFeesScore: number;
+  tradingVolumeScorePenalty: number;
+  uniqueContributorsScorePenalty: number;
+  dataAccessFeesScorePenalty: number;
+  rewardAmount: number;
+  penaltyAmount: number;
   metadata: string;
   historicalData: HistoricalPoint[];
   iconUrl: string;

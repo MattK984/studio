@@ -1,6 +1,6 @@
 // Contract addresses
 export const DLP_REGISTRY_ADDRESS = '0x4D59880a924526d1dD33260552Ff4328b1E18a43' as const;
-export const DLP_PERFORMANCE_ADDRESS = '0x00A5Fffd73fe45f410b888ba83C7FCE886eE6521' as const;
+export const DLP_PERFORMANCE_ADDRESS = '0x847715C7DB37cF286611182Be0bD333cbfa29cc1' as const;
 
 // DLP Registry ABI
 export const DLP_REGISTRY_ABI = [
