@@ -28,18 +28,20 @@ type DlpTableProps = {
 };
 
 // Function to format large numbers
-const formatNumber = (num: bigint | number) => {
-  const number = Number(num);
-  if (number >= 1_000_000_000) {
-    return (number / 1_000_000_000).toFixed(1) + 'B';
+const formatNumber = (num: number) => {
+  if (num >= 1_000_000_000) {
+    return (num / 1_000_000_000).toFixed(1) + 'B';
   }
-  if (number >= 1_000_000) {
-    return (number / 1_000_000).toFixed(1) + 'M';
+  if (num >= 1_000_000) {
+    return (num / 1_000_000).toFixed(1) + 'M';
   }
-  if (number >= 1_000) {
-    return (number / 1_000).toFixed(1) + 'K';
+  if (num >= 1_000) {
+    return (num / 1_000).toFixed(1) + 'K';
   }
-  return number.toString();
+  if (num < 1 && num > 0) {
+    return num.toFixed(2);
+  }
+  return Math.round(num).toString();
 };
 
 const truncateAddress = (address: string) => {
@@ -66,9 +68,9 @@ export function DlpTable({ data, loading, selectable = false }: DlpTableProps) {
   
   const chartData = [
     { metric: 'Score', ...Object.fromEntries(comparisonData.map(d => [d.name, d.totalScore]))},
-    { metric: 'Contributors', ...Object.fromEntries(comparisonData.map(d => [d.name, Number(d.uniqueContributors)]))},
-    { metric: 'Volume', ...Object.fromEntries(comparisonData.map(d => [d.name, Number(d.tradingVolume)]))},
-    { metric: 'Fees', ...Object.fromEntries(comparisonData.map(d => [d.name, Number(d.dataAccessFees)]))},
+    { metric: 'Contributors', ...Object.fromEntries(comparisonData.map(d => [d.name, d.uniqueContributors]))},
+    { metric: 'Volume', ...Object.fromEntries(comparisonData.map(d => [d.name, d.tradingVolume]))},
+    { metric: 'Fees', ...Object.fromEntries(comparisonData.map(d => [d.name, d.dataAccessFees]))},
   ];
 
   const chartConfig = comparisonData.reduce((config, dlp, i) => {

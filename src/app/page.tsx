@@ -15,15 +15,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGr
 import { Skeleton } from '@/components/ui/skeleton';
 
 // Function to format large numbers
-const formatNumber = (num: bigint | number) => {
-  const number = Number(num);
-  if (number >= 1_000_000) {
-    return (number / 1_000_000).toFixed(1) + 'M';
+const formatNumber = (num: number) => {
+  if (num >= 1_000_000) {
+    return (num / 1_000_000).toFixed(1) + 'M';
   }
-  if (number >= 1_000) {
-    return (number / 1_000).toFixed(1) + 'K';
+  if (num >= 1_000) {
+    return (num / 1_000).toFixed(1) + 'K';
   }
-  return number.toString();
+  if (num < 1 && num > 0) {
+    return num.toFixed(2);
+  }
+  return Math.round(num).toString();
 };
 
 export default function Home() {
@@ -33,7 +35,7 @@ export default function Home() {
   const [isPending, startTransition] = useTransition();
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const { toast } = useToast();
-  const [selectedEpoch, setSelectedEpoch] = useState<bigint>(5n);
+  const [selectedEpoch, setSelectedEpoch] = useState<bigint>(6n);
 
   const loadData = (epochId: bigint) => {
     setLoading(true);
@@ -70,12 +72,12 @@ export default function Home() {
 
   const topScoreDlps = [...data].sort((a, b) => b.totalScore - a.totalScore).slice(0, 3);
   const bestRankedDlps = [...data].sort((a, b) => a.rank - b.rank).filter(d => d.rank > 0).slice(0, 3);
-  const mostContributorsDlps = [...data].sort((a, b) => Number(b.uniqueContributors) - Number(a.uniqueContributors)).slice(0, 3);
+  const mostContributorsDlps = [...data].sort((a, b) => b.uniqueContributors - a.uniqueContributors).slice(0, 3);
   
   const [customMetric, setCustomMetric] = useState('rewards');
   const topCustomMetricDlps = [...data].sort((a, b) => {
-    if (customMetric === 'rewards') return Number(b.dataAccessFees) - Number(a.dataAccessFees);
-    if (customMetric === 'volume') return Number(b.tradingVolume) - Number(a.tradingVolume);
+    if (customMetric === 'rewards') return b.dataAccessFees - a.dataAccessFees;
+    if (customMetric === 'volume') return b.tradingVolume - a.tradingVolume;
     return 0;
   }).slice(0, 3);
 

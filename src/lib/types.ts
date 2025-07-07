@@ -13,9 +13,9 @@ export type Dlp = {
   name: string;
   rank: number;
   totalScore: number;
-  uniqueContributors: bigint;
-  tradingVolume: bigint;
-  dataAccessFees: bigint;
+  uniqueContributors: number;
+  tradingVolume: number;
+  dataAccessFees: number;
   tradingVolumeScore: number;
   uniqueContributorsScore: number;
   dataAccessFeesScore: number;

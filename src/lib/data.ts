@@ -63,16 +63,16 @@ const generateHistoricalData = (
     date.setDate(today.getDate() - i);
     
     // Create a deterministic-ish but varied fluctuation based on DLP name and day
-    const fluctuation = (key: string) => Math.sin((i + baseDlp.name.charCodeAt(0)) / (5 + key.length)) * 5 + (Math.random() - 0.5) * 2;
+    const fluctuation = (key: string, magnitude: number = 0.05) => (Math.sin((i + baseDlp.name.charCodeAt(0)) / (5 + key.length)) * 0.5 + (Math.random() - 0.5) * 0.5) * magnitude;
 
     data.push({
       date: date.toISOString().split('T')[0],
-      totalScore: Math.max(0, baseDlp.totalScore + fluctuation('score')),
-      uniqueContributors: Math.max(0, Math.round(Number(baseDlp.uniqueContributors) + fluctuation('contributors') * (Number(baseDlp.uniqueContributors) * 0.05))),
-      tradingVolume: Math.max(0, Number(baseDlp.tradingVolume) + fluctuation('volume') * (Number(baseDlp.tradingVolume) * 0.05)),
-      dataAccessFees: Math.max(0, Number(baseDlp.dataAccessFees) + fluctuation('fees') * (Number(baseDlp.dataAccessFees) * 0.05)),
-      rewardAmount: Math.max(0, baseDlp.rewardAmount + fluctuation('reward') * (baseDlp.rewardAmount * 0.05)),
-      penaltyAmount: Math.max(0, baseDlp.penaltyAmount + fluctuation('penalty') * (baseDlp.penaltyAmount * 0.05)),
+      totalScore: Math.max(0, baseDlp.totalScore * (1 + fluctuation('score'))),
+      uniqueContributors: Math.max(0, Math.round(baseDlp.uniqueContributors * (1 + fluctuation('contributors')))),
+      tradingVolume: Math.max(0, baseDlp.tradingVolume * (1 + fluctuation('volume'))),
+      dataAccessFees: Math.max(0, baseDlp.dataAccessFees * (1 + fluctuation('fees'))),
+      rewardAmount: Math.max(0, baseDlp.rewardAmount * (1 + fluctuation('reward'))),
+      penaltyAmount: Math.max(0, baseDlp.penaltyAmount * (1 + fluctuation('penalty'))),
     });
   }
   return data;
@@ -105,13 +105,13 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
           return null;
         }
 
-        const totalScore = Number(formatEther(performanceData.totalScore ?? 0n));
-        const uniqueContributors = performanceData.uniqueContributors ?? 0n;
-        const tradingVolume = performanceData.tradingVolume ?? 0n;
-        const dataAccessFees = performanceData.dataAccessFees ?? 0n;
-        const rewardAmount = Number(formatEther(rewardData.rewardAmount ?? 0n));
-        const penaltyAmount = Number(formatEther(rewardData.penaltyAmount ?? 0n));
-
+        const totalScore = parseFloat(formatEther(performanceData.totalScore ?? 0n));
+        const uniqueContributors = Number(performanceData.uniqueContributors ?? 0n);
+        const tradingVolume = parseFloat(formatEther(performanceData.tradingVolume ?? 0n));
+        const dataAccessFees = parseFloat(formatEther(performanceData.dataAccessFees ?? 0n));
+        const rewardAmount = parseFloat(formatEther(rewardData.rewardAmount ?? 0n));
+        const penaltyAmount = parseFloat(formatEther(rewardData.penaltyAmount ?? 0n));
+        
         const baseDlpData = {
           name: dlpInfo.name || `DLP #${dlpId}`,
           totalScore,
@@ -130,12 +130,12 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
           uniqueContributors,
           tradingVolume,
           dataAccessFees,
-          tradingVolumeScore: Number(formatEther(performanceData.tradingVolumeScore ?? 0n)),
-          uniqueContributorsScore: Number(formatEther(performanceData.uniqueContributorsScore ?? 0n)),
-          dataAccessFeesScore: Number(formatEther(performanceData.dataAccessFeesScore ?? 0n)),
-          tradingVolumeScorePenalty: Number(formatEther(performanceData.tradingVolumeScorePenalty ?? 0n)),
-          uniqueContributorsScorePenalty: Number(formatEther(performanceData.uniqueContributorsScorePenalty ?? 0n)),
-          dataAccessFeesScorePenalty: Number(formatEther(performanceData.dataAccessFeesScorePenalty ?? 0n)),
+          tradingVolumeScore: parseFloat(formatEther(performanceData.tradingVolumeScore ?? 0n)),
+          uniqueContributorsScore: parseFloat(formatEther(performanceData.uniqueContributorsScore ?? 0n)),
+          dataAccessFeesScore: parseFloat(formatEther(performanceData.dataAccessFeesScore ?? 0n)),
+          tradingVolumeScorePenalty: parseFloat(formatEther(performanceData.tradingVolumeScorePenalty ?? 0n)),
+          uniqueContributorsScorePenalty: parseFloat(formatEther(performanceData.uniqueContributorsScorePenalty ?? 0n)),
+          dataAccessFeesScorePenalty: parseFloat(formatEther(performanceData.dataAccessFeesScorePenalty ?? 0n)),
           rewardAmount,
           penaltyAmount,
           metadata: dlpInfo.metadata || '{}',
@@ -154,9 +154,9 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
             const baseDlpData = {
               name: dlpInfo.name,
               totalScore: 0,
-              uniqueContributors: 0n,
-              tradingVolume: 0n,
-              dataAccessFees: 0n,
+              uniqueContributors: 0,
+              tradingVolume: 0,
+              dataAccessFees: 0,
               rewardAmount: 0,
               penaltyAmount: 0,
             };
@@ -166,9 +166,9 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
               name: dlpInfo.name,
               rank: 0,
               totalScore: 0,
-              uniqueContributors: 0n,
-              tradingVolume: 0n,
-              dataAccessFees: 0n,
+              uniqueContributors: 0,
+              tradingVolume: 0,
+              dataAccessFees: 0,
               tradingVolumeScore: 0,
               uniqueContributorsScore: 0,
               dataAccessFeesScore: 0,
