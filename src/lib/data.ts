@@ -6,7 +6,7 @@ import {
   DLP_REGISTRY_ABI,
   DLP_PERFORMANCE_ABI,
 } from './contracts';
-import type { Dlp } from './types';
+import type { Dlp, HistoricalPoint } from './types';
 
 // Vana mainnet configuration
 const vanaMainnet = defineChain({
@@ -53,15 +53,26 @@ const dlpPerformanceContract = getContract({
   client: { public: publicClient },
 });
 
-const generateHistoricalData = (base: number) => {
-  const data = [];
+const generateHistoricalData = (
+  baseDlp: Pick<Dlp, 'name' | 'totalScore' | 'uniqueContributors' | 'tradingVolume' | 'dataAccessFees' | 'rewardAmount' | 'penaltyAmount'>
+): HistoricalPoint[] => {
+  const data: HistoricalPoint[] = [];
   const today = new Date();
   for (let i = 30; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(today.getDate() - i);
+    
+    // Create a deterministic-ish but varied fluctuation based on DLP name and day
+    const fluctuation = (key: string) => Math.sin((i + baseDlp.name.charCodeAt(0)) / (5 + key.length)) * 5 + (Math.random() - 0.5) * 2;
+
     data.push({
       date: date.toISOString().split('T')[0],
-      score: Math.max(0, Math.min(100, base + Math.sin(i / 5) * 5 + (Math.random() - 0.5) * 2)),
+      totalScore: Math.max(0, baseDlp.totalScore + fluctuation('score')),
+      uniqueContributors: Math.max(0, Math.round(Number(baseDlp.uniqueContributors) + fluctuation('contributors') * (Number(baseDlp.uniqueContributors) * 0.05))),
+      tradingVolume: Math.max(0, Number(baseDlp.tradingVolume) + fluctuation('volume') * (Number(baseDlp.tradingVolume) * 0.05)),
+      dataAccessFees: Math.max(0, Number(baseDlp.dataAccessFees) + fluctuation('fees') * (Number(baseDlp.dataAccessFees) * 0.05)),
+      rewardAmount: Math.max(0, baseDlp.rewardAmount + fluctuation('reward') * (baseDlp.rewardAmount * 0.05)),
+      penaltyAmount: Math.max(0, baseDlp.penaltyAmount + fluctuation('penalty') * (baseDlp.penaltyAmount * 0.05)),
     });
   }
   return data;
@@ -95,25 +106,40 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
         }
 
         const totalScore = Number(formatEther(performanceData.totalScore ?? 0n));
+        const uniqueContributors = performanceData.uniqueContributors ?? 0n;
+        const tradingVolume = performanceData.tradingVolume ?? 0n;
+        const dataAccessFees = performanceData.dataAccessFees ?? 0n;
+        const rewardAmount = Number(formatEther(rewardData.rewardAmount ?? 0n));
+        const penaltyAmount = Number(formatEther(rewardData.penaltyAmount ?? 0n));
+
+        const baseDlpData = {
+          name: dlpInfo.name || `DLP #${dlpId}`,
+          totalScore,
+          uniqueContributors,
+          tradingVolume,
+          dataAccessFees,
+          rewardAmount,
+          penaltyAmount,
+        };
         
         return {
           id: dlpId,
           name: dlpInfo.name || `DLP #${dlpId}`,
           rank: 0, // will be calculated later
           totalScore,
-          uniqueContributors: performanceData.uniqueContributors ?? 0n,
-          tradingVolume: performanceData.tradingVolume ?? 0n,
-          dataAccessFees: performanceData.dataAccessFees ?? 0n,
+          uniqueContributors,
+          tradingVolume,
+          dataAccessFees,
           tradingVolumeScore: Number(formatEther(performanceData.tradingVolumeScore ?? 0n)),
           uniqueContributorsScore: Number(formatEther(performanceData.uniqueContributorsScore ?? 0n)),
           dataAccessFeesScore: Number(formatEther(performanceData.dataAccessFeesScore ?? 0n)),
           tradingVolumeScorePenalty: Number(formatEther(performanceData.tradingVolumeScorePenalty ?? 0n)),
           uniqueContributorsScorePenalty: Number(formatEther(performanceData.uniqueContributorsScorePenalty ?? 0n)),
           dataAccessFeesScorePenalty: Number(formatEther(performanceData.dataAccessFeesScorePenalty ?? 0n)),
-          rewardAmount: Number(formatEther(rewardData.rewardAmount ?? 0n)),
-          penaltyAmount: Number(formatEther(rewardData.penaltyAmount ?? 0n)),
+          rewardAmount,
+          penaltyAmount,
           metadata: dlpInfo.metadata || '{}',
-          historicalData: generateHistoricalData(totalScore),
+          historicalData: generateHistoricalData(baseDlpData),
           iconUrl: dlpInfo.iconUrl || '',
           website: dlpInfo.website || '',
           address: dlpInfo.dlpAddress || '0x' + ''.padEnd(40, '0'),
@@ -124,6 +150,16 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
         try {
             const dlpInfo = await dlpRegistryContract.read.dlps([dlpIdBigInt]);
             if (!dlpInfo || !dlpInfo.name) return null;
+
+            const baseDlpData = {
+              name: dlpInfo.name,
+              totalScore: 0,
+              uniqueContributors: 0n,
+              tradingVolume: 0n,
+              dataAccessFees: 0n,
+              rewardAmount: 0,
+              penaltyAmount: 0,
+            };
 
             return {
               id: dlpId,
@@ -142,7 +178,7 @@ export const fetchDlpData = async (epochId: bigint): Promise<Dlp[]> => {
               rewardAmount: 0,
               penaltyAmount: 0,
               metadata: dlpInfo.metadata || '{}',
-              historicalData: generateHistoricalData(0),
+              historicalData: generateHistoricalData(baseDlpData),
               iconUrl: dlpInfo.iconUrl || '',
               website: dlpInfo.website || '',
               address: dlpInfo.dlpAddress || '0x' + ''.padEnd(40, '0'),

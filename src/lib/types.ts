@@ -1,6 +1,11 @@
 export type HistoricalPoint = {
   date: string;
-  score: number;
+  totalScore: number;
+  uniqueContributors: number;
+  tradingVolume: number;
+  dataAccessFees: number;
+  rewardAmount: number;
+  penaltyAmount: number;
 };
 
 export type Dlp = {
